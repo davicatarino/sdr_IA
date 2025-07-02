@@ -101,9 +101,7 @@ export async function processUserMessage(
         message: `Entendo sua solicitação. Vou transferir você para um atendente humano que poderá ajudá-lo melhor. Em breve alguém entrará em contato.`,
         type: 'handoff',
         metadata: {
-          intent: 'handoff',
-          reason: handoffTrigger.message,
-          priority: handoffTrigger.priority
+          intent: 'handoff'
         }
       };
     }
@@ -117,8 +115,7 @@ export async function processUserMessage(
     }
 
     // Executa o agente
-    const result = await run(sdrAgent, {
-      input: message,
+    const result = await run(sdrAgent, message, {
       context: {
         userId,
         messageType,
@@ -130,7 +127,7 @@ export async function processUserMessage(
     // Atualiza contexto com a resposta
     context.conversationHistory.push({
       role: 'assistant',
-      content: result.finalOutput,
+      content: result.finalOutput || '',
       timestamp: new Date()
     });
 
@@ -138,7 +135,7 @@ export async function processUserMessage(
     context.lastInteraction = new Date();
 
     return {
-      message: result.finalOutput,
+      message: result.finalOutput || '',
       type: 'text',
       metadata: {
         intent: extractIntent(message),

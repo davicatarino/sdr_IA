@@ -33,14 +33,18 @@ app.get('/webhook', (req, res) => {
  */
 app.post('/webhook', async (req, res) => {
   try {
-    const body: WhatsAppWebhookPayload = req.body;
+    // 1. Envie os dados recebidos para o endpoint de decrypt
+    const decryptResponse = await axios.post('https://sofia.212industria.com/decrypt', req.body);
 
-    // Verifica se é uma mensagem válida
-    if (body.object !== 'whatsapp_business_account') {
+    // 2. Use a resposta descriptografada como o novo body
+    const decryptedBody = decryptResponse.data;
+
+    // 3. Continue o processamento normal, mas usando o decryptedBody
+    if (decryptedBody.object !== 'whatsapp_business_account') {
       return res.sendStatus(200);
     }
 
-    const entry = body.entry?.[0];
+    const entry = decryptedBody.entry?.[0];
     if (!entry) {
       return res.sendStatus(200);
     }
@@ -62,10 +66,10 @@ app.post('/webhook', async (req, res) => {
       await processWhatsAppMessage(message, value.contacts?.[0]);
     }
 
-    res.sendStatus(200);
+    return res.sendStatus(200);
   } catch (error) {
     console.error('Erro no webhook:', error);
-    res.sendStatus(500);
+    return res.sendStatus(500);
   }
 });
 
