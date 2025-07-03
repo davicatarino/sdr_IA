@@ -81,7 +81,7 @@ async function processWhatsAppMessage(message, contact) {
             console.log('Mensagem vazia, ignorando');
             return;
         }
-        const response = await processUserMessage(userId, userInput, messageType);
+        const response = await processUserMessage(userId, userId, userInput, messageType);
         await sendWhatsAppResponse(userId, response);
     }
     catch (error) {

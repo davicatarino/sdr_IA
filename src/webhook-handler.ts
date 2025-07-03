@@ -116,7 +116,8 @@ async function processWhatsAppMessage(message: WhatsAppMessage, contact?: any) {
     }
 
     // Processa a mensagem com o agente SDR
-    const response = await processUserMessage(userId, userInput, messageType);
+    // threadId e userId são o número do WhatsApp
+    const response = await processUserMessage(userId, userId, userInput, messageType);
 
     // Envia resposta de volta para o WhatsApp
     await sendWhatsAppResponse(userId, response);

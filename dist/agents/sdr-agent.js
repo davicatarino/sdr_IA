@@ -2,120 +2,168 @@ import { Agent, run } from '@openai/agents';
 import { googleCalendarTool } from '../tools/google-calendar-tool.js';
 import { whatsappTool } from '../tools/whatsapp-tool.js';
 import { config, isBusinessHours } from '../utils/config.js';
+import { getContextByThreadId, saveContextByThreadId } from '../utils/thread-context.js';
+import { addMessageToHistory, getHistoryByThreadId } from '../utils/history.js';
 export const sdrAgent = new Agent({
     name: 'SDR-Agent',
-    instructions: `
-    Você é um assistente SDR (Sales Development Representative) especializado em agendar reuniões via WhatsApp.
+    instructions: ({ context }) => {
+        let historyPrompt = '';
+        if (context && context.history) {
+            const lastMsgs = context.history.slice(-12);
+            historyPrompt =
+                'HISTÓRICO DA CONVERSA (use para responder perguntas sobre o passado):\n' +
+                    lastMsgs
+                        .map((h) => `[${h.role === 'user' ? 'Usuário' : 'Assistente'}]: ${h.message}`)
+                        .join('\n') +
+                    '\n\n';
+        }
+        const prompt = `
+${historyPrompt}
+Você é um SDR (pré-vendas) especialista em agendamento de reuniões via WhatsApp.
 
-    Suas responsabilidades incluem:
-    1. Agendar reuniões no Google Calendar
-    2. Remarcar reuniões existentes
-    3. Cancelar reuniões quando solicitado
-    4. Verificar disponibilidade de horários
-    5. Listar reuniões futuras
-    6. Manter conversas naturais e profissionais
+Sempre utilize o histórico acima para responder perguntas sobre o passado, mesmo que o usuário não peça explicitamente. Não há ferramenta de histórico: use apenas o que está acima para responder.
 
-    Regras importantes:
-    - Sempre confirme detalhes antes de agendar (data, hora, duração, assunto)
-    - Respeite horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis)
-    - Nunca agende reuniões fora do horário comercial
-    - Peça confirmação antes de remarcar ou cancelar reuniões
-    - Seja educado e profissional em todas as interações
-    - Use emojis moderadamente para manter conversa natural
-    - Sempre informe o usuário sobre o status das ações
+Suas responsabilidades:
+1. Agendar reuniões no Google Calendar
+2. Remarcar reuniões existentes
+3. Cancelar reuniões quando solicitado
+4. Verificar disponibilidade de horários
+5. Listar reuniões futuras
+6. Manter conversas naturais e profissionais
 
-    Ferramentas disponíveis:
-    - google_calendar: Para todas as operações de calendário
-    - whatsapp_send: Para enviar mensagens de resposta
+Regras:
+- Sempre confirme detalhes antes de agendar (data, hora, duração, assunto)
+- Respeite horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis)
+- Nunca agende reuniões fora do horário comercial
+- Peça confirmação antes de remarcar ou cancelar reuniões
+- Seja educado e profissional
+- Use emojis moderadamente
 
-    Use as ferramentas conforme necessário para completar as tarefas solicitadas.
-    Se o usuário solicitar um agendamento fora do horário comercial, explique gentilmente a restrição e ofereça opções dentro do período permitido.
-  `,
+Ferramentas:
+- google_calendar: operações de calendário
+- whatsapp_send: enviar respostas
+    `;
+        console.log('[INSTRUCTIONS] Prompt final enviado para IA:', prompt);
+        return prompt;
+    },
     tools: [googleCalendarTool, whatsappTool],
-    model: 'gpt-4o',
+    model: 'gpt-4.1',
 });
-const userContexts = new Map();
 const handoffTriggers = [
     {
         condition: (input) => input.toLowerCase().includes('falar com humano') ||
             input.toLowerCase().includes('atendente') ||
             input.toLowerCase().includes('pessoa'),
         priority: 'high',
-        message: 'Cliente solicitou falar com humano'
+        message: 'Cliente solicitou falar com humano',
     },
     {
         condition: (input) => input.toLowerCase().includes('reclamação') ||
             input.toLowerCase().includes('problema') ||
             input.toLowerCase().includes('insatisfeito'),
         priority: 'medium',
-        message: 'Cliente com reclamação detectada'
+        message: 'Cliente com reclamação detectada',
     },
     {
         condition: (input, context) => context.rescheduleAttempts >= config.maxRescheduleAttempts,
         priority: 'high',
-        message: 'Máximo de tentativas de remarcação atingido'
-    }
+        message: 'Máximo de tentativas de remarcação atingido',
+    },
 ];
-export async function processUserMessage(userId, message, messageType = 'text') {
+export async function processUserMessage(threadId, userId, message, messageType = 'text') {
     try {
-        let context = userContexts.get(userId);
-        if (!context) {
+        console.log(`[PROCESSO] Nova mensagem recebida: threadId=${threadId}, userId=${userId}, msg="${message}"`);
+        await addMessageToHistory(threadId, userId, 'user', message);
+        const history = await getHistoryByThreadId(threadId, 50);
+        console.log(`[PROCESSO] Histórico recuperado (${history.length} mensagens):`, history);
+        const messages = history.map((h) => ({
+            role: h.role,
+            content: h.message
+        }));
+        console.log('[PROCESSO] Contexto enviado para Responses API:', messages);
+        let context = await getContextByThreadId(threadId);
+        if (!context)
             context = createUserContext(userId);
-            userContexts.set(userId, context);
-        }
-        context.conversationHistory.push({
-            role: 'user',
-            content: message,
-            timestamp: new Date()
-        });
+        context.conversationHistory = history.map((h) => ({
+            role: h.role,
+            content: h.message,
+            timestamp: h.created_at,
+        }));
         const handoffTrigger = checkHandoffTriggers(message, context);
         if (handoffTrigger) {
+            await saveContextByThreadId(threadId, context);
+            await addMessageToHistory(threadId, userId, 'assistant', 'Entendo sua solicitação. Vou transferir você para um atendente humano.');
             return {
-                message: `Entendo sua solicitação. Vou transferir você para um atendente humano que poderá ajudá-lo melhor. Em breve alguém entrará em contato.`,
+                message: 'Entendo sua solicitação. Vou transferir você para um atendente humano.',
                 type: 'handoff',
-                metadata: {
-                    intent: 'handoff'
-                }
+                metadata: { intent: 'handoff' },
             };
         }
         const intent = extractIntent(message);
         if (intent === 'schedule' && !isBusinessHours() && !isUrgentRequest(message)) {
+            await saveContextByThreadId(threadId, context);
+            await addMessageToHistory(threadId, userId, 'assistant', `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis).`);
             return {
-                message: `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis). Você quer deixar um horário sugerido ou prefere que eu te lembre assim que estivermos disponíveis?`,
-                type: 'text'
+                message: `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis).`,
+                type: 'text',
             };
         }
-        const result = await run(sdrAgent, message, {
-            context: {
-                userId,
-                messageType,
-                userContext: context,
-                businessHours: config.businessHours
+        if (intent === 'history') {
+            console.log('[BACKEND] Forçando uso da tool search_history para histórico completo.');
+            const history = await getHistoryByThreadId(threadId, 100);
+            let historyResult = '';
+            if (!history.length) {
+                historyResult = 'Nenhuma mensagem encontrada no histórico.';
             }
+            else {
+                historyResult = history
+                    .map((h) => `${h.role === 'user' ? 'Usuário' : 'Assistente'}: ${h.message}`)
+                    .join('\n');
+            }
+            await addMessageToHistory(threadId, userId, 'assistant', historyResult);
+            return {
+                message: historyResult,
+                type: 'text',
+                metadata: { intent: 'history' },
+            };
+        }
+        const agentContext = {
+            userId,
+            messageType,
+            userContext: context,
+            businessHours: config.businessHours,
+            threadId,
+            history: history.map((h) => ({ role: h.role, message: h.message })),
+        };
+        console.log('[AGENT] Contexto completo enviado para o agente:', agentContext);
+        const result = await run(sdrAgent, message, {
+            context: agentContext,
         });
+        console.log('[AGENT] Resposta recebida do agente:', result);
         context.conversationHistory.push({
             role: 'assistant',
             content: result.finalOutput || '',
-            timestamp: new Date()
+            timestamp: new Date(),
         });
         context.lastInteraction = new Date();
+        await saveContextByThreadId(threadId, context);
+        await addMessageToHistory(threadId, userId, 'assistant', result.finalOutput || '');
         return {
             message: result.finalOutput || '',
             type: 'text',
             metadata: {
-                intent: intent,
-                confidence: 0.9
-            }
+                intent,
+                confidence: 0.9,
+            },
         };
     }
     catch (error) {
-        console.error('Erro ao processar mensagem:', error);
+        console.error('[ERRO] Erro ao processar mensagem:', error);
+        await addMessageToHistory(threadId, userId, 'assistant', 'Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente ou entre em contato com nosso suporte.');
         return {
             message: 'Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente ou entre em contato com nosso suporte.',
             type: 'text',
-            metadata: {
-                intent: 'error'
-            }
+            metadata: { intent: 'error' },
         };
     }
 }
@@ -129,54 +177,40 @@ function createUserContext(userId) {
         preferences: {
             preferredTimeSlots: [],
             preferredDuration: 60,
-            notes: ''
-        }
+            notes: '',
+        },
     };
 }
 function checkHandoffTriggers(message, context) {
     for (const trigger of handoffTriggers) {
-        if (trigger.condition(message, context)) {
+        if (trigger.condition(message, context))
             return trigger;
-        }
     }
     return null;
 }
 function isUrgentRequest(message) {
     const urgentKeywords = ['urgente', 'emergência', 'importante', 'crítico'];
-    return urgentKeywords.some(keyword => message.toLowerCase().includes(keyword));
+    return urgentKeywords.some((kw) => message.toLowerCase().includes(kw));
 }
 function extractIntent(message) {
-    const lowerMessage = message.toLowerCase();
-    if (lowerMessage.includes('agendar') || lowerMessage.includes('marcar'))
+    const lower = message.toLowerCase();
+    if (lower.includes('agendar') || lower.includes('marcar'))
         return 'schedule';
-    if (lowerMessage.includes('remarcar') || lowerMessage.includes('alterar'))
+    if (lower.includes('remarcar') || lower.includes('alterar'))
         return 'reschedule';
-    if (lowerMessage.includes('cancelar') || lowerMessage.includes('desmarcar'))
+    if (lower.includes('cancelar') || lower.includes('desmarcar'))
         return 'cancel';
-    if (lowerMessage.includes('listar') || lowerMessage.includes('ver reuniões'))
+    if (lower.includes('listar') || lower.includes('ver reuniões'))
         return 'list';
-    if (lowerMessage.includes('disponibilidade') || lowerMessage.includes('horários'))
+    if (lower.includes('disponibilidade') || lower.includes('horários'))
         return 'check_availability';
-    if (lowerMessage.includes('tchau') || lowerMessage.includes('obrigado'))
+    if (lower.includes('tchau') || lower.includes('obrigado'))
         return 'goodbye';
+    if (lower.includes('histórico') ||
+        lower.includes('o que a gente já conversou') ||
+        lower.includes('me mostre o histórico') ||
+        lower.includes('resuma nossa conversa'))
+        return 'history';
     return 'general';
-}
-export function updateUserContext(userId, updates) {
-    const context = userContexts.get(userId);
-    if (context) {
-        Object.assign(context, updates);
-        userContexts.set(userId, context);
-    }
-}
-export function getUserContext(userId) {
-    return userContexts.get(userId);
-}
-export function cleanupOldContexts(maxAgeHours = 24) {
-    const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
-    for (const [userId, context] of userContexts.entries()) {
-        if (context.lastInteraction < cutoffTime) {
-            userContexts.delete(userId);
-        }
-    }
 }
 //# sourceMappingURL=sdr-agent.js.map
