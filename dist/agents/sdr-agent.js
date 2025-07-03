@@ -6,7 +6,7 @@ export const sdrAgent = new Agent({
     name: 'SDR-Agent',
     instructions: `
     Você é um assistente SDR (Sales Development Representative) especializado em agendar reuniões via WhatsApp.
-    
+
     Suas responsabilidades incluem:
     1. Agendar reuniões no Google Calendar
     2. Remarcar reuniões existentes
@@ -14,20 +14,22 @@ export const sdrAgent = new Agent({
     4. Verificar disponibilidade de horários
     5. Listar reuniões futuras
     6. Manter conversas naturais e profissionais
-    
+
     Regras importantes:
     - Sempre confirme detalhes antes de agendar (data, hora, duração, assunto)
     - Respeite horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis)
+    - Nunca agende reuniões fora do horário comercial
     - Peça confirmação antes de remarcar ou cancelar reuniões
     - Seja educado e profissional em todas as interações
     - Use emojis moderadamente para manter conversa natural
     - Sempre informe o usuário sobre o status das ações
-    
+
     Ferramentas disponíveis:
     - google_calendar: Para todas as operações de calendário
     - whatsapp_send: Para enviar mensagens de resposta
-    
+
     Use as ferramentas conforme necessário para completar as tarefas solicitadas.
+    Se o usuário solicitar um agendamento fora do horário comercial, explique gentilmente a restrição e ofereça opções dentro do período permitido.
   `,
     tools: [googleCalendarTool, whatsappTool],
     model: 'gpt-4o',
@@ -76,9 +78,10 @@ export async function processUserMessage(userId, message, messageType = 'text') 
                 }
             };
         }
-        if (!isBusinessHours() && !isUrgentRequest(message)) {
+        const intent = extractIntent(message);
+        if (intent === 'schedule' && !isBusinessHours() && !isUrgentRequest(message)) {
             return {
-                message: `Olá! Estamos fora do horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis). Deixe sua mensagem e retornaremos no próximo dia útil.`,
+                message: `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis). Você quer deixar um horário sugerido ou prefere que eu te lembre assim que estivermos disponíveis?`,
                 type: 'text'
             };
         }
@@ -100,7 +103,7 @@ export async function processUserMessage(userId, message, messageType = 'text') 
             message: result.finalOutput || '',
             type: 'text',
             metadata: {
-                intent: extractIntent(message),
+                intent: intent,
                 confidence: 0.9
             }
         };

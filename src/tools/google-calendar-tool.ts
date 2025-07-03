@@ -10,9 +10,9 @@ const auth = new google.auth.OAuth2(
   config.googleClientSecret
 );
 
-auth.setCredentials({
-  refresh_token: config.googleRefreshToken
-});
+// auth.setCredentials({
+//   refresh_token: config.googleRefreshToken
+// });
 
 const calendar = google.calendar({ version: 'v3', auth });
 

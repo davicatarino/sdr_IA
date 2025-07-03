@@ -3,9 +3,6 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 import { config } from '../utils/config.js';
 const auth = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
-auth.setCredentials({
-    refresh_token: config.googleRefreshToken
-});
 const calendar = google.calendar({ version: 'v3', auth });
 const GoogleCalendarParams = z.object({
     action: z.enum(['schedule', 'reschedule', 'cancel', 'list', 'check_availability']),

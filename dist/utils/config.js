@@ -7,7 +7,6 @@ export const config = {
     whatsappVerifyToken: process.env.WHATSAPP_VERIFY_TOKEN || '',
     googleClientId: process.env.GOOGLE_CLIENT_ID || '',
     googleClientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-    googleRefreshToken: process.env.GOOGLE_REFRESH_TOKEN || '',
     port: parseInt(process.env.PORT || '3000', 10),
     environment: process.env.NODE_ENV || 'development',
     businessHours: {
@@ -25,7 +24,6 @@ export function validateConfig() {
         'WHATSAPP_VERIFY_TOKEN',
         'GOOGLE_CLIENT_ID',
         'GOOGLE_CLIENT_SECRET',
-        'GOOGLE_REFRESH_TOKEN',
     ];
     const missingKeys = requiredKeys.filter(key => !process.env[key]);
     if (missingKeys.length > 0) {
