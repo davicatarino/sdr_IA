@@ -4,6 +4,7 @@ import { config, validateConfig, setupOpenAI } from './utils/config.js';
 import { processUserMessage } from './agents/sdr-agent.js';
 import { downloadWhatsAppMedia } from './tools/whatsapp-tool.js';
 import FormData from 'form-data';
+import { google } from 'googleapis';
 const app = express();
 app.use(express.json());
 setupOpenAI();
@@ -155,6 +156,39 @@ app.get('/status', (req, res) => {
         environment: config.environment,
         businessHours: config.businessHours
     });
+});
+app.get('/auth/google', (req, res) => {
+    const redirectUri = typeof req.query.redirect_uri === 'string'
+        ? req.query.redirect_uri
+        : 'https://sdr.212industria.com/auth/google/callback';
+    const oauth2Client = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret, redirectUri);
+    const url = oauth2Client.generateAuthUrl({
+        access_type: 'offline',
+        scope: ['https://www.googleapis.com/auth/calendar'],
+        prompt: 'consent'
+    });
+    res.send(`Acesse a seguinte URL para autenticar com o Google Calendar:<br><a href="${url}">${url}</a>`);
+});
+app.get('/auth/google/callback', async (req, res) => {
+    const { code } = req.query;
+    if (!code || typeof code !== 'string') {
+        res.status(400).send('Code não informado');
+        return;
+    }
+    const oauth2Client = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret, 'https://sdr.212industria.com/auth/google/callback');
+    try {
+        const { tokens } = await oauth2Client.getToken(code);
+        res.send(`
+      <h2>Seu refresh_token:</h2>
+      <pre>${tokens.refresh_token || 'Não retornado (tente novamente com prompt=consent)'}</pre>
+      <p>Coloque este valor no seu .env como <b>GOOGLE_REFRESH_TOKEN</b></p>
+    `);
+        return;
+    }
+    catch (err) {
+        res.status(500).send('Erro ao trocar code por token: ' + err);
+        return;
+    }
 });
 function startServer() {
     try {

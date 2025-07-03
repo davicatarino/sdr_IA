@@ -10,9 +10,9 @@ const auth = new google.auth.OAuth2(
   config.googleClientSecret
 );
 
-// auth.setCredentials({
-//   refresh_token: config.googleRefreshToken
-// });
+ auth.setCredentials({
+  refresh_token: config.googleRefreshToken
+});
 
 const calendar = google.calendar({ version: 'v3', auth });
 
@@ -94,7 +94,11 @@ async function scheduleMeeting(params: {
 }): Promise<SchedulingResponse> {
   const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone } = params;
   
+  console.log('[GOOGLE CALENDAR] Iniciando agendamento de reunião...');
+  console.log('[GOOGLE CALENDAR] Parâmetros recebidos:', params);
+
   if (!summary || !startDateTime || !timeZone) {
+    console.log('[GOOGLE CALENDAR] Falha: Título, data/hora de início e fuso horário são obrigatórios');
     return {
       success: false,
       message: 'Título, data/hora de início e fuso horário são obrigatórios'
@@ -125,12 +129,16 @@ async function scheduleMeeting(params: {
     }
   };
 
+  console.log('[GOOGLE CALENDAR] Evento a ser criado:', event);
+
   try {
     const response = await calendar.events.insert({
       calendarId: 'primary',
       requestBody: event,
       sendUpdates: 'all'
     });
+
+    console.log('[GOOGLE CALENDAR] Evento criado com sucesso:', response.data);
 
     return {
       success: true,
@@ -139,6 +147,7 @@ async function scheduleMeeting(params: {
       requiresConfirmation: false
     };
   } catch (error) {
+    console.error('[GOOGLE CALENDAR] Erro ao agendar reunião:', error);
     return {
       success: false,
       message: `Erro ao agendar reunião: ${error instanceof Error ? error.message : 'Erro desconhecido'}`

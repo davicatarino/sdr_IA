@@ -147,7 +147,7 @@ export interface AppConfig {
   whatsappVerifyToken: string;
   googleClientId: string;
   googleClientSecret: string;
- // googleRefreshToken: string;
+  googleRefreshToken: string;
   port: number;
   environment: 'development' | 'production' | 'test';
   businessHours: {

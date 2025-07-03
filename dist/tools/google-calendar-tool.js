@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 import { config } from '../utils/config.js';
 const auth = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
+auth.setCredentials({
+    refresh_token: config.googleRefreshToken
+});
 const calendar = google.calendar({ version: 'v3', auth });
 const GoogleCalendarParams = z.object({
     action: z.enum(['schedule', 'reschedule', 'cancel', 'list', 'check_availability']),
@@ -61,7 +64,10 @@ export const googleCalendarTool = tool({
 });
 async function scheduleMeeting(params) {
     const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone } = params;
+    console.log('[GOOGLE CALENDAR] Iniciando agendamento de reunião...');
+    console.log('[GOOGLE CALENDAR] Parâmetros recebidos:', params);
     if (!summary || !startDateTime || !timeZone) {
+        console.log('[GOOGLE CALENDAR] Falha: Título, data/hora de início e fuso horário são obrigatórios');
         return {
             success: false,
             message: 'Título, data/hora de início e fuso horário são obrigatórios'
@@ -89,12 +95,14 @@ async function scheduleMeeting(params) {
             ]
         }
     };
+    console.log('[GOOGLE CALENDAR] Evento a ser criado:', event);
     try {
         const response = await calendar.events.insert({
             calendarId: 'primary',
             requestBody: event,
             sendUpdates: 'all'
         });
+        console.log('[GOOGLE CALENDAR] Evento criado com sucesso:', response.data);
         return {
             success: true,
             eventId: response.data.id || undefined,
@@ -103,6 +111,7 @@ async function scheduleMeeting(params) {
         };
     }
     catch (error) {
+        console.error('[GOOGLE CALENDAR] Erro ao agendar reunião:', error);
         return {
             success: false,
             message: `Erro ao agendar reunião: ${error instanceof Error ? error.message : 'Erro desconhecido'}`

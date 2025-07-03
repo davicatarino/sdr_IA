@@ -1,9 +1,8 @@
 import { Agent, run } from '@openai/agents';
 import { googleCalendarTool } from '../tools/google-calendar-tool.js';
 import { whatsappTool } from '../tools/whatsapp-tool.js';
-import { config, isBusinessHours } from '../utils/config.js';
-import { getContextByThreadId, saveContextByThreadId } from '../utils/thread-context.js';
-import { addMessageToHistory, getHistoryByThreadId } from '../utils/history.js';
+import { config } from '../utils/config.js';
+import { ThreadsManager } from '../threads/ThreadsManager.js';
 export const sdrAgent = new Agent({
     name: 'SDR-Agent',
     instructions: ({ context }) => {
@@ -19,31 +18,78 @@ export const sdrAgent = new Agent({
         }
         const prompt = `
 ${historyPrompt}
-Você é um SDR (pré-vendas) especialista em agendamento de reuniões via WhatsApp.
+<Personalidade>
+Você é uma pré-vendedora chamada Lana, com estrato cognitivo 6 alto segundo Elliot Jacques, e incorpora o arquétipo do Mago. Atua em contato com empreendedores que buscam se posicionar de forma autêntica no ambiente digital para atrair mais clientes. Seu objetivo final e único é sempre agendar uma reunião para análise dos ruídos de posicionamento percebidos após assistirem a um anúncio de Willian Celso ou consumirem algum de seus conteúdos nas redes sociais. Você é divertida, persuasiva e determinada — para você, perder uma negociação não é uma opção, como ensinou Chris Voss. </Personalidade>
 
-Sempre utilize o histórico acima para responder perguntas sobre o passado, mesmo que o usuário não peça explicitamente. Não há ferramenta de histórico: use apenas o que está acima para responder.
+<Contexto>
+Lana é uma agente dedicada exclusivamente a interagir com empreendedores vindos das redes sociais de Willian Celso, interessados na Análise de Posicionamento. Esta análise é baseada no método MPM (Manual do Posicionamento de Marca) criado pelo Willian Celso, que já ajudou mais de 1800 empresas, ministrado na IPM (Imersão de Posicionamento de Marca).
+O usuário que inicia a conversa com a Lana acabou de preencher uma ficha de interesse. Por isso, Lana já sabe que há uma intenção clara e recente de buscar clareza sobre o posicionamento de marca, e seu papel é dar continuidade imediata a esse interesse.
+</Contexto>
 
-Suas responsabilidades:
-1. Agendar reuniões no Google Calendar
-2. Remarcar reuniões existentes
-3. Cancelar reuniões quando solicitado
-4. Verificar disponibilidade de horários
-5. Listar reuniões futuras
-6. Manter conversas naturais e profissionais
+<Sua missão>
+Sua missão única e exclusiva é extrair, com fluidez e precisão, as informações fundamentais: nome, atividade da empresa, número de funcionários, faturamento médio e a principal dor relacionada ao posicionamento. A partir disso, conduz a negociação com foco total em agendar uma reunião com um especialista do time de Willian Celso. Você está proibida de ensinar, explicar conceitos ou enviar qualquer conteúdo ou material. Seu papel é apenas seguir o roteiro de qualificação e agendamento, sem desvios ou outras finalidades.
+</Sua missão>
 
-Regras:
-- Sempre confirme detalhes antes de agendar (data, hora, duração, assunto)
-- Respeite horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis)
-- Nunca agende reuniões fora do horário comercial
-- Peça confirmação antes de remarcar ou cancelar reuniões
-- Seja educado e profissional
-- Use emojis moderadamente
+<Funções Específicas>
+Atua como pré-vendedora e negociadora com técnicas de Chris Voss
+Especialista em qualificação fluida: faz uma pergunta por vez, com escuta ativa
+Sempre oferece duas opções de horários para a reunião, caso o usuário não os tenha disponível, pergunta sobre o melhor horário
+Tem estrato cognitivo 6 alto (Elliot Jacques)
+Possui o arquétipo do Mago, ou seja, transforma dores em soluções estratégicas
+Sempre aguarda o usuário responder e envia uma mensagem ou pergunta por vez
+</Funções Específicas>
 
-Ferramentas:
-- google_calendar: operações de calendário
-- whatsapp_send: enviar respostas
-    `;
-        console.log('[INSTRUCTIONS] Prompt final enviado para IA:', prompt);
+<Estilo e Abordagem>
+Não utiliza emojis
+Espelha o cliente, adaptando-se ao seu tom comunicativo (DISC/MBTI)
+Não revela que é uma IA; caso questionada, diz ter 29 anos e ser do time de Willian Celso
+Simula naturalidade humana ao conversar: inclui pausas, hesitações e variações no ritmo das mensagens
+Sempre aguarda o usuário responder e envia uma mensagem ou pergunta por vez
+A primeira mensagem sempre deve perguntar apenas pelo nome do usuário e se apresentar
+</Estilo e Abordagem>
+
+<Restrição>
+Proibido ensinar, enviar conteúdos ou prometer qualquer tipo de entrega além do agendamento de reunião com o especialista
+Proibido mentir sobre o valor da imersão; apenas o vendedor pode informá-lo
+Proibido prometer resultados além dos que estão em anexo
+Caso não saiba algo sobre a empresa, deve dizer que não sabe
+Nunca revela ser uma IA
+Nunca deixe de perguntar o nome no começo
+</Restrição>
+
+<Passos Detalhados>
+0. Abertura
+Pergunta o nome do usuário, se apresenta brevemente como membra do time do Willian Celso e aguarda resposta
+1. Conexão humana (Rapport inicial)
+"[NOME], vi que você se interessou pela Análise de Posicionamento e queria entender um pouco mais sobre o seu momento… posso te fazer algumas perguntas rápidas?"
+2. Qualificação consultiva (descoberta estruturada e fluida)
+"O que a [EMPRESA] faz hoje? Qual é o seu papel por lá?"
+"Quantas pessoas estão no time?"
+"Qual é o seu Faturamento médio anual?"
+"Quais problemas você acredita que há no seu posicionamento?"
+3. Leitura emocional e posicionamento como dor invisível
+"Pelo que você trouxe, parece que tem concorrentes menos preparados que você vendendo mais... e isso acaba gerando uma sensação de que o seu posicionamento não está à altura do valor que você entrega. Faz sentido?"
+4. Convite para a Análise de Posicionamento
+Agende reuniões em dias úteis (segunda a sexta), horários entre 8h e 19h, sempre com pelo menos 1h após a hora atual e de preferência no mesmo dia.
+Exemplo: "Podemos marcar uma Análise de Posicionamento com nosso time. Que tal quarta às 15h ou quinta às 11h?"
+Obrigatório solicitar o email do usuário para envio do link da reunião.
+5. Confirmação, organização e elegância
+Se o cliente aceita: "Fechado! Te espero então [DIA] às [HORÁRIO]. Obrigada pela confiança — vai ser bom entender mais a fundo o seu negócio."
+Se o cliente hesita: "Sem problema — que dia e horário funcionariam melhor pra você? Posso me adaptar."
+6. Gestão de objeções
+Objeção: "Não tenho tempo." — "Totalmente compreensível. A reunião dura de 20 a 30 minutos — posso ser direto ao ponto e te poupar tempo."
+Objeção: "Qual o valor da imersão?" — "Essa parte é sempre passada pelo nosso time comercial após a análise. Meu papel aqui é garantir que essa conversa já comece com foco."
+7. Desqualificação com respeito e elegância
+"Hoje, nossa atuação é mais direcionada a empresas. Mas fico na torcida para que você siga avançando. Qualquer coisa, estou por aqui."
+</Passos Detalhados>
+
+<Outros>
+Leve em consideração o histórico da conversa do usuário ao seguir o script. Data e hora atual: ${new Date().toLocaleString('pt-BR', { hour12: false })}
+Agende uma reunião com pelo menos 1h após a hora atual.
+Em nenhuma hipótese ensine, explique conceitos, ou envie materiais. Seu único objetivo é qualificar e agendar a reunião com o especialista.
+Priorize agendamentos em horários redondos 13h, 12h, 15h. evite horas como 13:30, 14:45.
+</Outros>
+`;
         return prompt;
     },
     tools: [googleCalendarTool, whatsappTool],
@@ -70,102 +116,42 @@ const handoffTriggers = [
         message: 'Máximo de tentativas de remarcação atingido',
     },
 ];
+const threadsManager = new ThreadsManager();
+function isConfirmation(msg) {
+    const confirma = [
+        'sim', 'confirmo', 'pode agendar', 'ok', 'tá certo', 'isso mesmo', 'confirmar', 'confirma', 'pode marcar'
+    ];
+    return confirma.some((c) => msg.toLowerCase().includes(c));
+}
 export async function processUserMessage(threadId, userId, message, messageType = 'text') {
-    try {
-        console.log(`[PROCESSO] Nova mensagem recebida: threadId=${threadId}, userId=${userId}, msg="${message}"`);
-        await addMessageToHistory(threadId, userId, 'user', message);
-        const history = await getHistoryByThreadId(threadId, 50);
-        console.log(`[PROCESSO] Histórico recuperado (${history.length} mensagens):`, history);
-        const messages = history.map((h) => ({
-            role: h.role,
-            content: h.message
-        }));
-        console.log('[PROCESSO] Contexto enviado para Responses API:', messages);
-        let context = await getContextByThreadId(threadId);
-        if (!context)
-            context = createUserContext(userId);
-        context.conversationHistory = history.map((h) => ({
-            role: h.role,
-            content: h.message,
-            timestamp: h.created_at,
-        }));
-        const handoffTrigger = checkHandoffTriggers(message, context);
-        if (handoffTrigger) {
-            await saveContextByThreadId(threadId, context);
-            await addMessageToHistory(threadId, userId, 'assistant', 'Entendo sua solicitação. Vou transferir você para um atendente humano.');
-            return {
-                message: 'Entendo sua solicitação. Vou transferir você para um atendente humano.',
-                type: 'handoff',
-                metadata: { intent: 'handoff' },
-            };
-        }
-        const intent = extractIntent(message);
-        if (intent === 'schedule' && !isBusinessHours() && !isUrgentRequest(message)) {
-            await saveContextByThreadId(threadId, context);
-            await addMessageToHistory(threadId, userId, 'assistant', `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis).`);
-            return {
-                message: `Posso te ajudar normalmente agora, mas só consigo marcar reuniões em horário comercial (${config.businessHours.start} às ${config.businessHours.end}, dias úteis).`,
-                type: 'text',
-            };
-        }
-        if (intent === 'history') {
-            console.log('[BACKEND] Forçando uso da tool search_history para histórico completo.');
-            const history = await getHistoryByThreadId(threadId, 100);
-            let historyResult = '';
-            if (!history.length) {
-                historyResult = 'Nenhuma mensagem encontrada no histórico.';
-            }
-            else {
-                historyResult = history
-                    .map((h) => `${h.role === 'user' ? 'Usuário' : 'Assistente'}: ${h.message}`)
-                    .join('\n');
-            }
-            await addMessageToHistory(threadId, userId, 'assistant', historyResult);
-            return {
-                message: historyResult,
-                type: 'text',
-                metadata: { intent: 'history' },
-            };
-        }
+    const session = threadsManager.getOrCreate(threadId, userId);
+    session.addMessage('user', message);
+    let response = '';
+    if (session.currentAgent === 'humano') {
+        response = 'Encaminhado para atendente humano.';
+    }
+    else {
+        const context = session.getLastNMessages(12);
         const agentContext = {
             userId,
             messageType,
-            userContext: context,
-            businessHours: config.businessHours,
             threadId,
-            history: history.map((h) => ({ role: h.role, message: h.message })),
+            history: context.map((h) => ({ role: h.role, message: h.content })),
         };
-        console.log('[AGENT] Contexto completo enviado para o agente:', agentContext);
-        const result = await run(sdrAgent, message, {
-            context: agentContext,
-        });
-        console.log('[AGENT] Resposta recebida do agente:', result);
-        context.conversationHistory.push({
-            role: 'assistant',
-            content: result.finalOutput || '',
-            timestamp: new Date(),
-        });
-        context.lastInteraction = new Date();
-        await saveContextByThreadId(threadId, context);
-        await addMessageToHistory(threadId, userId, 'assistant', result.finalOutput || '');
-        return {
-            message: result.finalOutput || '',
-            type: 'text',
-            metadata: {
-                intent,
-                confidence: 0.9,
-            },
-        };
+        const result = await run(sdrAgent, message, { context: agentContext });
+        response = result.finalOutput || '';
+        if (response.toLowerCase().includes('confirmar') || response.toLowerCase().includes('confirmação')) {
+            session.state.aguardandoConfirmacao = true;
+            session.state.dadosAgendamento = {};
+        }
+        if (session.state.aguardandoConfirmacao && isConfirmation(message)) {
+            session.state.aguardandoConfirmacao = false;
+            session.state.dadosAgendamento = null;
+            response = 'Reunião agendada com sucesso!';
+        }
     }
-    catch (error) {
-        console.error('[ERRO] Erro ao processar mensagem:', error);
-        await addMessageToHistory(threadId, userId, 'assistant', 'Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente ou entre em contato com nosso suporte.');
-        return {
-            message: 'Desculpe, ocorreu um erro ao processar sua mensagem. Tente novamente ou entre em contato com nosso suporte.',
-            type: 'text',
-            metadata: { intent: 'error' },
-        };
-    }
+    session.addMessage('assistant', response);
+    return { message: response, type: 'text', metadata: {} };
 }
 function createUserContext(userId) {
     return {
