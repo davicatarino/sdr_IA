@@ -3,8 +3,8 @@ import { z } from 'zod';
 export declare const whatsappTool: import("@openai/agents").FunctionTool<unknown, z.ZodObject<{
     phoneNumber: z.ZodString;
     message: z.ZodString;
-    messageType: z.ZodNullable<z.ZodOptional<z.ZodEnum<["text", "confirmation", "options"]>>>;
-    options: z.ZodNullable<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
+    messageType: z.ZodOptional<z.ZodUnion<[z.ZodEnum<["text", "confirmation", "options"]>, z.ZodNull]>>;
+    options: z.ZodOptional<z.ZodUnion<[z.ZodArray<z.ZodString, "many">, z.ZodNull]>>;
 }, "strip", z.ZodTypeAny, {
     message: string;
     phoneNumber: string;

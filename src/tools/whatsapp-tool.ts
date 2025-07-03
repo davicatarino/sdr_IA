@@ -9,8 +9,8 @@ import { config } from '../utils/config.js';
 const WhatsAppParams = z.object({
   phoneNumber: z.string(),
   message: z.string(),
-  messageType: z.enum(['text', 'confirmation', 'options']).optional().nullable(),
-  options: z.array(z.string()).optional().nullable(),
+  messageType: z.union([z.enum(['text', 'confirmation', 'options']), z.null()]).optional(),
+  options: z.union([z.array(z.string()), z.null()]).optional(),
 });
 
 export const whatsappTool = tool({

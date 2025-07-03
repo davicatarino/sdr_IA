@@ -18,14 +18,14 @@ const calendar = google.calendar({ version: 'v3', auth });
 
 const GoogleCalendarParams = z.object({
   action: z.enum(['schedule', 'reschedule', 'cancel', 'list', 'check_availability']),
-  eventId: z.string().optional().nullable(),
-  summary: z.string().optional().nullable(),
-  description: z.string().optional().nullable(),
-  startDateTime: z.string().optional().nullable(),
-  endDateTime: z.string().optional().nullable(),
-  attendees: z.array(z.string()).optional().nullable(),
-  duration: z.number().optional().nullable(),
-  timeZone: z.string().optional().nullable(),
+  eventId: z.union([z.string(), z.null()]).optional(),
+  summary: z.union([z.string(), z.null()]).optional(),
+  description: z.union([z.string(), z.null()]).optional(),
+  startDateTime: z.union([z.string(), z.null()]).optional(),
+  endDateTime: z.union([z.string(), z.null()]).optional(),
+  attendees: z.union([z.array(z.string()), z.null()]).optional(),
+  duration: z.union([z.number(), z.null()]).optional(),
+  timeZone: z.union([z.string(), z.null()]).optional(),
 });
 
 /**

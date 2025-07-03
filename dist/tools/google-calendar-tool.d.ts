@@ -1,14 +1,14 @@
 import { z } from 'zod';
 export declare const googleCalendarTool: import("@openai/agents").FunctionTool<unknown, z.ZodObject<{
     action: z.ZodEnum<["schedule", "reschedule", "cancel", "list", "check_availability"]>;
-    eventId: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    summary: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    description: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    startDateTime: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    endDateTime: z.ZodNullable<z.ZodOptional<z.ZodString>>;
-    attendees: z.ZodNullable<z.ZodOptional<z.ZodArray<z.ZodString, "many">>>;
-    duration: z.ZodNullable<z.ZodOptional<z.ZodNumber>>;
-    timeZone: z.ZodNullable<z.ZodOptional<z.ZodString>>;
+    eventId: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
+    summary: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
+    description: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
+    startDateTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
+    endDateTime: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
+    attendees: z.ZodOptional<z.ZodUnion<[z.ZodArray<z.ZodString, "many">, z.ZodNull]>>;
+    duration: z.ZodOptional<z.ZodUnion<[z.ZodNumber, z.ZodNull]>>;
+    timeZone: z.ZodOptional<z.ZodUnion<[z.ZodString, z.ZodNull]>>;
 }, "strip", z.ZodTypeAny, {
     action: "schedule" | "reschedule" | "cancel" | "list" | "check_availability";
     eventId?: string | null | undefined;
