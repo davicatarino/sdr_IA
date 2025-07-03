@@ -34,13 +34,17 @@ app.get('/webhook', (req, res) => {
  */
 app.post('/webhook', async (req, res) => {
   try {
-    // 1. Envie os dados recebidos para o endpoint de decrypt
-    const decryptResponse = await axios.post('https://sofia.212industria.com/decrypt', req.body);
+    let decryptedBody;
 
-    // 2. Use a resposta descriptografada como o novo body
-    const decryptedBody = decryptResponse.data;
+    // Só envia para decrypt se for payload criptografado
+    if (req.body.encrypted_flow_data) {
+      const decryptResponse = await axios.post('https://sofia.212industria.com/decrypt', req.body);
+      decryptedBody = decryptResponse.data;
+    } else {
+      // Mensagem comum do WhatsApp
+      decryptedBody = req.body;
+    }
 
-    // 3. Continue o processamento normal, mas usando o decryptedBody
     if (decryptedBody.object !== 'whatsapp_business_account') {
       return res.sendStatus(200);
     }

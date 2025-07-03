@@ -22,8 +22,14 @@ app.get('/webhook', (req, res) => {
 });
 app.post('/webhook', async (req, res) => {
     try {
-        const decryptResponse = await axios.post('https://sofia.212industria.com/decrypt', req.body);
-        const decryptedBody = decryptResponse.data;
+        let decryptedBody;
+        if (req.body.encrypted_flow_data) {
+            const decryptResponse = await axios.post('https://sofia.212industria.com/decrypt', req.body);
+            decryptedBody = decryptResponse.data;
+        }
+        else {
+            decryptedBody = req.body;
+        }
         if (decryptedBody.object !== 'whatsapp_business_account') {
             return res.sendStatus(200);
         }
