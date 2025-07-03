@@ -1,8 +1,8 @@
 import { Agent, run, setDefaultOpenAIKey } from '@openai/agents';
-import { googleCalendarTool } from '../tools/google-calendar-tool';
-import { whatsappTool } from '../tools/whatsapp-tool';
-import { SDRContext, SDRResponse, HandoffTrigger } from '../types';
-import { config, isBusinessHours } from '../utils/config';
+import { googleCalendarTool } from '../tools/google-calendar-tool.js';
+import { whatsappTool } from '../tools/whatsapp-tool.js';
+import { SDRContext, SDRResponse, HandoffTrigger } from '../types/index.js';
+import { config, isBusinessHours } from '../utils/config.js';
 
 /**
  * Agente SDR principal para agendamento de reuniões via WhatsApp
@@ -201,27 +201,18 @@ function isUrgentRequest(message: string): boolean {
 function extractIntent(message: string): string {
   const lowerMessage = message.toLowerCase();
   
-  if (lowerMessage.includes('agendar') || lowerMessage.includes('marcar')) {
-    return 'schedule';
-  }
-  if (lowerMessage.includes('remarcar') || lowerMessage.includes('alterar')) {
-    return 'reschedule';
-  }
-  if (lowerMessage.includes('cancelar') || lowerMessage.includes('desmarcar')) {
-    return 'cancel';
-  }
-  if (lowerMessage.includes('listar') || lowerMessage.includes('ver') || lowerMessage.includes('mostrar')) {
-    return 'list';
-  }
-  if (lowerMessage.includes('disponível') || lowerMessage.includes('horário')) {
-    return 'check_availability';
-  }
+  if (lowerMessage.includes('agendar') || lowerMessage.includes('marcar')) return 'schedule';
+  if (lowerMessage.includes('remarcar') || lowerMessage.includes('alterar')) return 'reschedule';
+  if (lowerMessage.includes('cancelar') || lowerMessage.includes('desmarcar')) return 'cancel';
+  if (lowerMessage.includes('listar') || lowerMessage.includes('ver reuniões')) return 'list';
+  if (lowerMessage.includes('disponibilidade') || lowerMessage.includes('horários')) return 'check_availability';
+  if (lowerMessage.includes('tchau') || lowerMessage.includes('obrigado')) return 'goodbye';
   
   return 'general';
 }
 
 /**
- * Atualiza contexto do usuário após ação
+ * Atualiza contexto do usuário
  */
 export function updateUserContext(userId: string, updates: Partial<SDRContext>): void {
   const context = userContexts.get(userId);
@@ -239,13 +230,13 @@ export function getUserContext(userId: string): SDRContext | undefined {
 }
 
 /**
- * Limpa contexto antigo (para manutenção)
+ * Remove contextos antigos para limpeza de memória
  */
 export function cleanupOldContexts(maxAgeHours: number = 24): void {
-  const cutoff = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
+  const cutoffTime = new Date(Date.now() - maxAgeHours * 60 * 60 * 1000);
   
   for (const [userId, context] of userContexts.entries()) {
-    if (context.lastInteraction < cutoff) {
+    if (context.lastInteraction < cutoffTime) {
       userContexts.delete(userId);
     }
   }

@@ -1,22 +1,32 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import { google } from 'googleapis';
-import { CalendarEvent, AvailableSlot, SchedulingRequest, SchedulingResponse } from '../types';
-import { config } from '../utils/config';
+import { config } from '../utils/config.js';
+import { CalendarEvent, SchedulingResponse, AvailableSlot } from '../types/index.js';
 
 // Configuração do Google Calendar
-const oauth2Client = new google.auth.OAuth2(
+const auth = new google.auth.OAuth2(
   config.googleClientId,
-  config.googleClientSecret,
-  process.env.GOOGLE_REDIRECT_URI
+  config.googleClientSecret
 );
 
-// Configurar refresh token
-oauth2Client.setCredentials({
-  refresh_token: config.googleRefreshToken,
+auth.setCredentials({
+  refresh_token: config.googleRefreshToken
 });
 
-const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
+const calendar = google.calendar({ version: 'v3', auth });
+
+const GoogleCalendarParams = z.object({
+  action: z.enum(['schedule', 'reschedule', 'cancel', 'list', 'check_availability']),
+  eventId: z.string().optional().nullable(),
+  summary: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  startDateTime: z.string().optional().nullable(),
+  endDateTime: z.string().optional().nullable(),
+  attendees: z.array(z.string()).optional().nullable(),
+  duration: z.number().optional().nullable(),
+  timeZone: z.string().optional().nullable(),
+});
 
 /**
  * Ferramenta para agendar reuniões no Google Calendar
@@ -24,35 +34,38 @@ const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
 export const googleCalendarTool = tool({
   name: 'google_calendar',
   description: 'Agenda, busca, modifica ou cancela reuniões no Google Calendar',
-  parameters: z.object({
-    action: z.enum(['schedule', 'reschedule', 'cancel', 'list', 'check_availability']).describe('Ação a ser executada'),
-    eventId: z.string().optional().describe('ID do evento (para reschedule/cancel)'),
-    summary: z.string().optional().describe('Título da reunião'),
-    description: z.string().optional().describe('Descrição da reunião'),
-    startDateTime: z.string().optional().describe('Data e hora de início (ISO 8601)'),
-    endDateTime: z.string().optional().describe('Data e hora de fim (ISO 8601)'),
-    attendees: z.array(z.string()).optional().describe('Lista de emails dos participantes'),
-    duration: z.number().optional().describe('Duração em minutos'),
-    timeZone: z.string().optional().describe('Fuso horário (padrão: America/Sao_Paulo)'),
-  }),
-  execute: async ({ action, eventId, summary, description, startDateTime, endDateTime, attendees, duration, timeZone = 'America/Sao_Paulo' }) => {
+  parameters: GoogleCalendarParams,
+  async execute(args: z.infer<typeof GoogleCalendarParams>) {
+    const { action, eventId, summary, description, startDateTime, endDateTime, attendees, duration, timeZone = 'America/Sao_Paulo' } = args;
+    
     try {
       switch (action) {
         case 'schedule':
-          return await scheduleMeeting({ summary, description, startDateTime, endDateTime, attendees, duration, timeZone });
-        
+          return await scheduleMeeting({ 
+            summary: summary || undefined, 
+            description: description || undefined, 
+            startDateTime: startDateTime || undefined, 
+            endDateTime: endDateTime || undefined, 
+            attendees: attendees || undefined, 
+            duration: duration || undefined, 
+            timeZone: timeZone || 'America/Sao_Paulo' 
+          });
         case 'reschedule':
-          return await rescheduleMeeting(eventId!, { startDateTime, endDateTime, timeZone });
-        
+          return await rescheduleMeeting(eventId!, { 
+            startDateTime: startDateTime || undefined, 
+            endDateTime: endDateTime || undefined, 
+            timeZone: timeZone || 'America/Sao_Paulo' 
+          });
         case 'cancel':
           return await cancelMeeting(eventId!);
-        
         case 'list':
           return await listMeetings();
-        
         case 'check_availability':
-          return await checkAvailability(startDateTime!, endDateTime!, timeZone);
-        
+          return await checkAvailability(
+            startDateTime || null, 
+            endDateTime || null, 
+            timeZone || null
+          );
         default:
           throw new Error(`Ação não suportada: ${action}`);
       }
@@ -71,20 +84,20 @@ export const googleCalendarTool = tool({
  * Agenda uma nova reunião
  */
 async function scheduleMeeting(params: {
-  summary?: string;
-  description?: string;
-  startDateTime?: string;
-  endDateTime?: string;
-  attendees?: string[];
-  duration?: number;
-  timeZone: string;
+  summary?: string | null;
+  description?: string | null;
+  startDateTime?: string | null;
+  endDateTime?: string | null;
+  attendees?: string[] | null;
+  duration?: number | null;
+  timeZone: string | null;
 }): Promise<SchedulingResponse> {
   const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone } = params;
   
-  if (!summary || !startDateTime) {
+  if (!summary || !startDateTime || !timeZone) {
     return {
       success: false,
-      message: 'Título e data/hora de início são obrigatórios'
+      message: 'Título, data/hora de início e fuso horário são obrigatórios'
     };
   }
 
@@ -93,7 +106,7 @@ async function scheduleMeeting(params: {
 
   const event: CalendarEvent = {
     summary,
-    description,
+    description: description || undefined,
     start: {
       dateTime: start.toISOString(),
       timeZone
@@ -102,7 +115,7 @@ async function scheduleMeeting(params: {
       dateTime: end.toISOString(),
       timeZone
     },
-    attendees: attendees?.map(email => ({ email })),
+    attendees: attendees?.map(email => ({ email })) || undefined,
     reminders: {
       useDefault: false,
       overrides: [
@@ -121,7 +134,7 @@ async function scheduleMeeting(params: {
 
     return {
       success: true,
-      eventId: response.data.id!,
+      eventId: response.data.id || undefined,
       message: `Reunião "${summary}" agendada para ${formatDateTime(start)}`,
       requiresConfirmation: false
     };
@@ -137,16 +150,16 @@ async function scheduleMeeting(params: {
  * Remarca uma reunião existente
  */
 async function rescheduleMeeting(eventId: string, params: {
-  startDateTime?: string;
-  endDateTime?: string;
-  timeZone: string;
+  startDateTime?: string | null;
+  endDateTime?: string | null;
+  timeZone: string | null;
 }): Promise<SchedulingResponse> {
   const { startDateTime, endDateTime, timeZone } = params;
   
-  if (!startDateTime) {
+  if (!startDateTime || !timeZone) {
     return {
       success: false,
-      message: 'Nova data/hora de início é obrigatória'
+      message: 'Nova data/hora de início e fuso horário são obrigatórios'
     };
   }
 
@@ -172,7 +185,7 @@ async function rescheduleMeeting(eventId: string, params: {
     const newEnd = endDateTime ? new Date(endDateTime) : new Date(newStart.getTime() + duration);
 
     const updatedEvent: CalendarEvent = {
-      ...currentEvent.data,
+      summary: currentEvent.data.summary || '',
       start: {
         dateTime: newStart.toISOString(),
         timeZone
@@ -192,7 +205,7 @@ async function rescheduleMeeting(eventId: string, params: {
 
     return {
       success: true,
-      eventId: response.data.id!,
+      eventId: response.data.id || undefined,
       message: `Reunião remarcada para ${formatDateTime(newStart)}`,
       requiresConfirmation: false
     };
@@ -243,18 +256,11 @@ async function listMeetings(): Promise<SchedulingResponse> {
     });
 
     const events = response.data.items || [];
-    
+
     return {
       success: true,
       message: `Encontradas ${events.length} reuniões futuras`,
-      metadata: {
-        events: events.map(event => ({
-          id: event.id,
-          summary: event.summary,
-          start: event.start?.dateTime,
-          end: event.end?.dateTime
-        }))
-      }
+      requiresConfirmation: false
     };
   } catch (error) {
     return {
@@ -265,13 +271,20 @@ async function listMeetings(): Promise<SchedulingResponse> {
 }
 
 /**
- * Verifica disponibilidade de horários
+ * Verifica disponibilidade
  */
-async function checkAvailability(startDateTime: string, endDateTime: string, timeZone: string): Promise<SchedulingResponse> {
+async function checkAvailability(startDateTime: string | null, endDateTime: string | null, timeZone: string | null): Promise<SchedulingResponse> {
+  if (!startDateTime || !endDateTime || !timeZone) {
+    return {
+      success: false,
+      message: 'Data/hora de início, fim e fuso horário são obrigatórios'
+    };
+  }
+  
   try {
     const start = new Date(startDateTime);
     const end = new Date(endDateTime);
-
+    
     const response = await calendar.freebusy.query({
       requestBody: {
         timeMin: start.toISOString(),
@@ -281,14 +294,33 @@ async function checkAvailability(startDateTime: string, endDateTime: string, tim
     });
 
     const busy = response.data.calendars?.primary?.busy || [];
-    
+    const availableSlots: AvailableSlot[] = [];
+
+    // Gera slots de 1 hora durante o período
+    let currentTime = new Date(start);
+    while (currentTime < end) {
+      const slotEnd = new Date(currentTime.getTime() + 60 * 60000); // 1 hora
+      
+      const isBusy = busy.some(busyPeriod => {
+        const busyStart = new Date(busyPeriod.start || '');
+        const busyEnd = new Date(busyPeriod.end || '');
+        return currentTime < busyEnd && slotEnd > busyStart;
+      });
+
+      availableSlots.push({
+        start: currentTime.toISOString(),
+        end: slotEnd.toISOString(),
+        available: !isBusy
+      });
+
+      currentTime = slotEnd;
+    }
+
     return {
       success: true,
       message: `Verificação de disponibilidade concluída`,
-      metadata: {
-        busyPeriods: busy,
-        available: busy.length === 0
-      }
+      suggestedSlots: availableSlots,
+      requiresConfirmation: false
     };
   } catch (error) {
     return {
@@ -310,4 +342,4 @@ function formatDateTime(date: Date): string {
     hour: '2-digit',
     minute: '2-digit'
   });
-} 
+}

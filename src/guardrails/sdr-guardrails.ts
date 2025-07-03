@@ -1,20 +1,13 @@
-import { defineOutputGuardrail } from '@openai/agents';
 import { z } from 'zod';
-import { SDRContext } from '../types';
-import { config, isBusinessHours } from '../utils/config';
+import { SDRContext } from '../types/index.js';
+import { config, isBusinessHours } from '../utils/config.js';
 
 /**
  * Guardrail para validar horário comercial
  */
-export const businessHoursGuardrail = defineOutputGuardrail({
+export const businessHoursGuardrail = {
   name: 'horario_comercial',
-  description: 'Valida se a ação está sendo executada dentro do horário comercial',
-  schema: z.object({
-    dentro_horario: z.boolean().refine(val => val, 'Ação fora do horário comercial'),
-    horario_atual: z.string(),
-    horario_permitido: z.string()
-  }),
-  validate: async (output) => {
+  validate: async (output: any) => {
     const now = new Date();
     const dentroHorario = isBusinessHours(now);
     
@@ -24,20 +17,14 @@ export const businessHoursGuardrail = defineOutputGuardrail({
       horario_permitido: `${config.businessHours.start} às ${config.businessHours.end}`
     };
   }
-});
+};
 
 /**
  * Guardrail para validar confirmações de agendamento
  */
-export const confirmationGuardrail = defineOutputGuardrail({
+export const confirmationGuardrail = {
   name: 'confirmacao_agendamento',
-  description: 'Valida se o agendamento foi confirmado pelo usuário',
-  schema: z.object({
-    confirmado: z.boolean().refine(val => val, 'Agendamento não confirmado'),
-    detalhes_completos: z.boolean().refine(val => val, 'Detalhes incompletos'),
-    horario_valido: z.boolean().refine(val => val, 'Horário inválido')
-  }),
-  validate: async (output) => {
+  validate: async (output: any) => {
     const { summary, startDateTime, endDateTime } = output;
     
     return {
@@ -46,20 +33,14 @@ export const confirmationGuardrail = defineOutputGuardrail({
       horario_valido: startDateTime && endDateTime && new Date(startDateTime) < new Date(endDateTime)
     };
   }
-});
+};
 
 /**
  * Guardrail para limitar tentativas de remarcação
  */
-export const rescheduleLimitGuardrail = defineOutputGuardrail({
+export const rescheduleLimitGuardrail = {
   name: 'limite_remarcacao',
-  description: 'Valida se não excedeu o limite de tentativas de remarcação',
-  schema: z.object({
-    dentro_limite: z.boolean().refine(val => val, 'Limite de remarcações excedido'),
-    tentativas_atual: z.number(),
-    limite_maximo: z.number()
-  }),
-  validate: async (output, context: SDRContext) => {
+  validate: async (output: any, context: SDRContext) => {
     const tentativasAtual = context.rescheduleAttempts || 0;
     const dentroLimite = tentativasAtual < config.maxRescheduleAttempts;
     
@@ -69,20 +50,14 @@ export const rescheduleLimitGuardrail = defineOutputGuardrail({
       limite_maximo: config.maxRescheduleAttempts
     };
   }
-});
+};
 
 /**
  * Guardrail para validar dados sensíveis
  */
-export const sensitiveDataGuardrail = defineOutputGuardrail({
+export const sensitiveDataGuardrail = {
   name: 'dados_sensiveis',
-  description: 'Valida se não há dados sensíveis sendo expostos',
-  schema: z.object({
-    sem_dados_sensiveis: z.boolean().refine(val => val, 'Dados sensíveis detectados'),
-    tipo_conteudo: z.string(),
-    nivel_seguranca: z.enum(['baixo', 'medio', 'alto'])
-  }),
-  validate: async (output) => {
+  validate: async (output: any) => {
     const content = JSON.stringify(output);
     const sensitivePatterns = [
       /\b\d{3}\.\d{3}\.\d{3}-\d{2}\b/, // CPF
@@ -99,20 +74,14 @@ export const sensitiveDataGuardrail = defineOutputGuardrail({
       nivel_seguranca: hasSensitiveData ? 'alto' : 'baixo'
     };
   }
-});
+};
 
 /**
  * Guardrail para validar duração de reuniões
  */
-export const meetingDurationGuardrail = defineOutputGuardrail({
+export const meetingDurationGuardrail = {
   name: 'duracao_reuniao',
-  description: 'Valida se a duração da reunião está dentro dos limites aceitáveis',
-  schema: z.object({
-    duracao_valida: z.boolean().refine(val => val, 'Duração inválida'),
-    duracao_minutos: z.number(),
-    duracao_maxima: z.number()
-  }),
-  validate: async (output) => {
+  validate: async (output: any) => {
     const { startDateTime, endDateTime } = output;
     
     if (!startDateTime || !endDateTime) {
@@ -135,20 +104,14 @@ export const meetingDurationGuardrail = defineOutputGuardrail({
       duracao_maxima: 480
     };
   }
-});
+};
 
 /**
  * Guardrail para validar participantes
  */
-export const attendeesGuardrail = defineOutputGuardrail({
+export const attendeesGuardrail = {
   name: 'participantes',
-  description: 'Valida se os participantes da reunião são válidos',
-  schema: z.object({
-    participantes_validos: z.boolean().refine(val => val, 'Participantes inválidos'),
-    quantidade_participantes: z.number(),
-    limite_maximo: z.number()
-  }),
-  validate: async (output) => {
+  validate: async (output: any) => {
     const attendees = output.attendees || [];
     const quantidadeParticipantes = attendees.length;
     const limiteMaximo = 50; // Limite do Google Calendar
@@ -160,20 +123,14 @@ export const attendeesGuardrail = defineOutputGuardrail({
       limite_maximo: limiteMaximo
     };
   }
-});
+};
 
 /**
  * Guardrail para detectar intenção de handoff
  */
-export const handoffDetectionGuardrail = defineOutputGuardrail({
+export const handoffDetectionGuardrail = {
   name: 'detecao_handoff',
-  description: 'Detecta se o usuário quer falar com humano',
-  schema: z.object({
-    precisa_handoff: z.boolean(),
-    motivo: z.string().optional(),
-    urgencia: z.enum(['baixa', 'media', 'alta', 'critica'])
-  }),
-  validate: async (output, context: SDRContext) => {
+  validate: async (output: any, context: SDRContext) => {
     const lastMessage = context.conversationHistory[context.conversationHistory.length - 1]?.content || '';
     const lowerMessage = lastMessage.toLowerCase();
     
@@ -203,4 +160,4 @@ export const handoffDetectionGuardrail = defineOutputGuardrail({
       urgencia: urgencia
     };
   }
-}); 
+}; 

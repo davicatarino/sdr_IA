@@ -1,4 +1,4 @@
-import { ResponseTemplate } from '../types';
+import { ResponseTemplate } from '../types/index.js';
 
 /**
  * Templates de respostas padronizadas para o agente SDR
@@ -45,7 +45,7 @@ export const responseTemplates: ResponseTemplate[] = [
   },
   {
     id: 'schedule_success',
-    type: 'text',
+    type: 'confirmation',
     template: '✅ Reunião agendada com sucesso!\n\n📅 {summary}\n📅 Data: {date}\n⏰ Horário: {time}\n⏱️ Duração: {duration} minutos\n\nVocê receberá um lembrete 15 minutos antes. Precisa de mais alguma coisa?',
     variables: ['summary', 'date', 'time', 'duration'],
     conditions: {
@@ -65,7 +65,7 @@ export const responseTemplates: ResponseTemplate[] = [
   },
   {
     id: 'reschedule_success',
-    type: 'text',
+    type: 'confirmation',
     template: '✅ Reunião remarcada com sucesso!\n\n📅 {summary}\n📅 Nova data: {newDate}\n⏰ Novo horário: {newTime}\n\nTodos os participantes foram notificados. Precisa de mais alguma coisa?',
     variables: ['summary', 'newDate', 'newTime'],
     conditions: {
@@ -85,7 +85,7 @@ export const responseTemplates: ResponseTemplate[] = [
   },
   {
     id: 'cancel_success',
-    type: 'text',
+    type: 'confirmation',
     template: '✅ Reunião cancelada com sucesso!\n\n📅 {summary}\n❌ Cancelada\n\nTodos os participantes foram notificados. Posso ajudá-lo com mais alguma coisa?',
     variables: ['summary'],
     conditions: {
@@ -96,7 +96,7 @@ export const responseTemplates: ResponseTemplate[] = [
   // Listagem de reuniões
   {
     id: 'list_meetings',
-    type: 'text',
+    type: 'options',
     template: '📋 Suas próximas reuniões:\n\n{meetings}\n\nPrecisa de mais alguma informação?',
     variables: ['meetings'],
     conditions: {
@@ -107,7 +107,7 @@ export const responseTemplates: ResponseTemplate[] = [
   // Verificação de disponibilidade
   {
     id: 'check_availability',
-    type: 'text',
+    type: 'options',
     template: '🔍 Verificando disponibilidade para {date}...\n\n{availability}\n\nGostaria de agendar algum desses horários?',
     variables: ['date', 'availability'],
     conditions: {
@@ -118,7 +118,7 @@ export const responseTemplates: ResponseTemplate[] = [
   // Solicitação de informações
   {
     id: 'ask_meeting_details',
-    type: 'text',
+    type: 'options',
     template: 'Para agendar sua reunião, preciso de algumas informações:\n\n📝 Qual o assunto da reunião?\n📅 Qual data você prefere?\n⏰ Qual horário?\n⏱️ Qual a duração estimada?\n👥 Há outros participantes?',
     variables: [],
     conditions: {
@@ -129,7 +129,7 @@ export const responseTemplates: ResponseTemplate[] = [
   // Horário fora do comercial
   {
     id: 'outside_business_hours',
-    type: 'text',
+    type: 'greeting',
     template: '⏰ Estamos fora do horário comercial ({start} às {end}, dias úteis).\n\nDeixe sua mensagem e retornaremos no próximo dia útil. Para casos urgentes, marque sua mensagem como "urgente".',
     variables: ['start', 'end'],
     conditions: {
@@ -171,7 +171,7 @@ export const responseTemplates: ResponseTemplate[] = [
   // Despedidas
   {
     id: 'goodbye',
-    type: 'text',
+    type: 'greeting',
     template: 'Obrigado por usar nosso serviço! 😊\n\nSe precisar de mais alguma coisa, é só me chamar. Tenha um ótimo dia! 👋',
     variables: [],
     conditions: {

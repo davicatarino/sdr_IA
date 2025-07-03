@@ -1,9 +1,10 @@
 import express from 'express';
 import axios from 'axios';
-import { config, validateConfig, setupOpenAI } from './utils/config';
-import { processUserMessage } from './agents/sdr-agent';
-import { downloadWhatsAppMedia } from './tools/whatsapp-tool';
-import { WhatsAppWebhookPayload, WhatsAppMessage } from './types';
+import { config, validateConfig, setupOpenAI } from './utils/config.js';
+import { processUserMessage } from './agents/sdr-agent.js';
+import { downloadWhatsAppMedia } from './tools/whatsapp-tool.js';
+import { WhatsAppWebhookPayload, WhatsAppMessage } from './types/index.js';
+import FormData from 'form-data';
 
 const app = express();
 app.use(express.json());
@@ -142,7 +143,6 @@ async function transcribeAudio(mediaId: string): Promise<string> {
     const audioBuffer = await downloadWhatsAppMedia(mediaId);
     
     // Cria FormData para enviar para OpenAI
-    const FormData = require('form-data');
     const form = new FormData();
     form.append('file', audioBuffer, {
       filename: 'audio.ogg',
@@ -233,7 +233,7 @@ function startServer() {
 }
 
 // Inicia o servidor se este arquivo for executado diretamente
-if (require.main === module) {
+if (process.argv[1] === new URL(import.meta.url).pathname) {
   startServer();
 }
 

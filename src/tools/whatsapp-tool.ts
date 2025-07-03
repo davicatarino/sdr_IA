@@ -1,24 +1,27 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
 import axios from 'axios';
-import { config } from '../utils/config';
+import { config } from '../utils/config.js';
 
 /**
  * Ferramenta para enviar mensagens via WhatsApp
  */
+const WhatsAppParams = z.object({
+  phoneNumber: z.string(),
+  message: z.string(),
+  messageType: z.enum(['text', 'confirmation', 'options']).optional().nullable(),
+  options: z.array(z.string()).optional().nullable(),
+});
+
 export const whatsappTool = tool({
   name: 'whatsapp_send',
   description: 'Envia mensagens de texto, confirmações ou opções via WhatsApp',
-  parameters: z.object({
-    phoneNumber: z.string().describe('Número do telefone do destinatário (formato: 5511999999999)'),
-    message: z.string().describe('Mensagem a ser enviada'),
-    messageType: z.enum(['text', 'confirmation', 'options']).optional().describe('Tipo da mensagem'),
-    options: z.array(z.string()).optional().describe('Opções para botões (se messageType for options)'),
-  }),
-  execute: async ({ phoneNumber, message, messageType = 'text', options }) => {
+  parameters: WhatsAppParams,
+  async execute(args: z.infer<typeof WhatsAppParams>) {
+    const { phoneNumber, message, messageType = 'text', options } = args;
+    
     try {
       const response = await sendWhatsAppMessage(phoneNumber, message, messageType, options);
-      
       return {
         success: true,
         messageId: response.id,
@@ -41,8 +44,8 @@ export const whatsappTool = tool({
 async function sendWhatsAppMessage(
   phoneNumber: string,
   message: string,
-  messageType: 'text' | 'confirmation' | 'options' = 'text',
-  options?: string[]
+  messageType: 'text' | 'confirmation' | 'options' | null = 'text',
+  options?: string[] | null
 ) {
   const url = `https://graph.facebook.com/v17.0/${config.whatsappPhoneNumberId}/messages`;
   
@@ -51,7 +54,10 @@ async function sendWhatsAppMessage(
     to: phoneNumber,
   };
 
-  switch (messageType) {
+  // Se messageType for null, usa 'text' como padrão
+  const type = messageType || 'text';
+
+  switch (type) {
     case 'text':
       requestBody.type = 'text';
       requestBody.text = { body: message };

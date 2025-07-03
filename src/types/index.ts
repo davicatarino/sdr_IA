@@ -178,7 +178,7 @@ export const InputValidationSchema = z.object({
   message: z.string().min(1, 'Mensagem não pode estar vazia'),
   userId: z.string().min(1, 'ID do usuário é obrigatório'),
   messageType: z.enum(['text', 'audio']),
-  timestamp: z.date().optional(),
+  timestamp: z.date().optional().nullable(),
 });
 
 export type InputValidation = z.infer<typeof InputValidationSchema>;
@@ -186,7 +186,7 @@ export type InputValidation = z.infer<typeof InputValidationSchema>;
 // Tipos para respostas padronizadas
 export interface ResponseTemplate {
   id: string;
-  type: 'greeting' | 'confirmation' | 'options' | 'error' | 'handoff';
+  type: 'greeting' | 'confirmation' | 'options' | 'error' | 'handoff' | 'text';
   template: string;
   variables?: string[];
   conditions?: {
