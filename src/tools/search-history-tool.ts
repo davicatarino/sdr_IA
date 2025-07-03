@@ -1,6 +1,6 @@
 import { tool } from '@openai/agents';
 import { z } from 'zod';
-import { getHistoryByThreadId } from '../utils/history.js';
+import { getHistoryByThreadIdMySQL } from '../utils/history.js';
 
 export const searchHistoryTool = tool({
   name: 'search_history',
@@ -12,9 +12,9 @@ export const searchHistoryTool = tool({
   async execute({ query }: any, context: any) {
     const threadId = context?.threadId;
     if (!threadId) return 'ThreadId não informado.';
-    const history = await getHistoryByThreadId(threadId, 100);
+    const history = await getHistoryByThreadIdMySQL(threadId, 100) as any[];
+    if (!history.length) return 'Nenhuma mensagem encontrada no histórico.';
     if (!query || query.trim().toLowerCase() === 'tudo') {
-      if (!history.length) return 'Nenhuma mensagem encontrada no histórico.';
       return history
         .map((h: any) => `${h.role === 'user' ? 'Usuário' : 'Assistente'}: ${h.message}`)
         .join('\n');

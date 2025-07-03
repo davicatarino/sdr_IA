@@ -2,6 +2,7 @@ import { tool } from '@openai/agents';
 import { z } from 'zod';
 import { google } from 'googleapis';
 import { config } from '../utils/config.js';
+import { addMeetingToMySQL } from '../utils/meetings.js';
 const auth = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
 auth.setCredentials({
     refresh_token: config.googleRefreshToken
@@ -63,7 +64,7 @@ export const googleCalendarTool = tool({
     }
 });
 async function scheduleMeeting(params) {
-    const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone } = params;
+    const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone, threadId, userId } = params;
     console.log('[GOOGLE CALENDAR] Iniciando agendamento de reunião...');
     console.log('[GOOGLE CALENDAR] Parâmetros recebidos:', params);
     if (!summary || !startDateTime || !timeZone) {
@@ -103,6 +104,16 @@ async function scheduleMeeting(params) {
             sendUpdates: 'all'
         });
         console.log('[GOOGLE CALENDAR] Evento criado com sucesso:', response.data);
+        if (threadId && userId) {
+            await addMeetingToMySQL({
+                threadId,
+                userId,
+                eventId: String(response.data.id || ''),
+                summary: summary || '',
+                startTime: start,
+                endTime: end
+            });
+        }
         return {
             success: true,
             eventId: response.data.id || undefined,
@@ -275,4 +286,5 @@ function formatDateTime(date) {
         minute: '2-digit'
     });
 }
+export { scheduleMeeting, cancelMeeting, listMeetings, checkAvailability };
 //# sourceMappingURL=google-calendar-tool.js.map

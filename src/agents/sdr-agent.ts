@@ -1,15 +1,115 @@
-import { Agent, run } from '@openai/agents';
+import { Agent, run, tool } from '@openai/agents';
 import { googleCalendarTool } from '../tools/google-calendar-tool.js';
 import { whatsappTool } from '../tools/whatsapp-tool.js';
 import { searchHistoryTool } from '../tools/search-history-tool.js';
 import { SDRContext, SDRResponse, HandoffTrigger } from '../types/index.js';
 import { config, isBusinessHours } from '../utils/config.js';
 import { getContextByThreadId, saveContextByThreadId } from '../utils/thread-context.js';
-import { addMessageToHistory, getHistoryByThreadId } from '../utils/history.js';
+import { addMessageToHistoryMySQL, getHistoryByThreadIdMySQL } from '../utils/history.js';
 import { LeadSession } from '../threads/LeadSession.js';
 import { ThreadsManager } from '../threads/ThreadsManager.js';
+import axios from 'axios';
+import { z } from 'zod';
+import { getMeetingEventIdByThread } from '../utils/meetings.js';
 
 // ---------- AGENTE SDR ----------
+
+export const agendarTool = tool({
+  name: 'agendar_reuniao',
+  description: 'Agenda uma nova reunião no Google Calendar',
+  parameters: z.object({
+    nome: z.string(),
+    email: z.string(),
+    startDateTime: z.string(),
+    endDateTime: z.string(),
+    threadId: z.string(),
+    userId: z.string()
+  }),
+  async execute(args) {
+    // Força campos fixos
+    const summary = 'Análise de Posicionamento';
+    const description = 'Reunião para análise dos ruídos de posicionamento percebidos após consumo de conteúdo do Willian Celso. Método MPM.';
+    const timeZone = 'America/Sao_Paulo';
+    const payload = {
+      summary,
+      description,
+      startDateTime: args.startDateTime,
+      endDateTime: args.endDateTime,
+      attendees: Array.isArray(args.email) ? args.email : [args.email],
+      threadId: args.threadId,
+      userId: args.userId,
+      timeZone
+    };
+    console.log('[TOOL][agendar_reuniao] Executando com payload FIXO:', payload);
+    try {
+      const result = await agendarReuniaoMCP(payload, args.threadId, args.userId);
+      console.log('[TOOL][agendar_reuniao] Resultado:', result);
+      if (!result || typeof result !== 'object') {
+        console.error('[TOOL][agendar_reuniao] Resultado inesperado:', result);
+        return { success: false, message: 'Erro técnico: resposta inesperada do MCP.' };
+      }
+      if (!result.success) {
+        console.error('[TOOL][agendar_reuniao] Falha no agendamento:', result.message);
+      }
+      return result;
+    } catch (error) {
+      console.error('[TOOL][agendar_reuniao] Erro:', error);
+      return { success: false, message: 'Erro técnico ao agendar reunião.' };
+    }
+  }
+});
+
+export const cancelarTool = tool({
+  name: 'cancelar_reuniao',
+  description: 'Cancela uma reunião existente no Google Calendar',
+  parameters: z.object({
+    threadId: z.string(),
+    userId: z.string()
+  }),
+  async execute(args) {
+    console.log('[TOOL][cancelar_reuniao] Executando com args:', args);
+    try {
+      const eventId = await getMeetingEventIdByThread(args.threadId, args.userId);
+      if (!eventId) {
+        console.log('[TOOL][cancelar_reuniao] Nenhuma reunião encontrada para cancelar.');
+        return { success: false, message: 'Nenhuma reunião encontrada para cancelar.' };
+      }
+      const result = await cancelarReuniaoMCP(eventId, args.threadId, args.userId);
+      console.log('[TOOL][cancelar_reuniao] Resultado:', result);
+      return result;
+    } catch (error) {
+      console.error('[TOOL][cancelar_reuniao] Erro:', error);
+      return { success: false, message: 'Erro técnico ao cancelar reunião.' };
+    }
+  }
+});
+
+export const verificarDisponibilidadeTool = tool({
+  name: 'verificar_disponibilidade',
+  description: 'Verifica se o horário está disponível no Google Calendar',
+  parameters: z.object({
+    startDateTime: z.string(),
+    endDateTime: z.string(),
+    timeZone: z.string(),
+    threadId: z.string(),
+    userId: z.string()
+  }),
+  async execute(args) {
+    console.log('[TOOL][verificar_disponibilidade] Executando com args:', args);
+    if (!args.threadId || !args.userId) {
+      console.log('[TOOL][verificar_disponibilidade] threadId ou userId ausente!');
+      return { success: false, message: 'threadId e userId são obrigatórios.' };
+    }
+    try {
+      const { data, status } = await axios.post('https://sdr.212industria.com/agenda/disponibilidade', args);
+      console.log('[TOOL][verificar_disponibilidade] Status:', status, 'Resposta:', data);
+      return data;
+    } catch (error) {
+      console.error('[TOOL][verificar_disponibilidade] Erro:', error);
+      return { success: false, message: 'Erro técnico ao verificar disponibilidade.' };
+    }
+  }
+});
 
 export const sdrAgent = new Agent({
   name: 'SDR-Agent',
@@ -48,6 +148,8 @@ Sempre oferece duas opções de horários para a reunião, caso o usuário não 
 Tem estrato cognitivo 6 alto (Elliot Jacques)
 Possui o arquétipo do Mago, ou seja, transforma dores em soluções estratégicas
 Sempre aguarda o usuário responder e envia uma mensagem ou pergunta por vez
+Nunca agende uma reunião sem antes verificar conflitos de horário usando a ferramenta de listagem de reuniões (listMeetings). Sempre utilize a ferramenta de listagem para sugerir horários realmente disponíveis e só agende se não houver conflito.
+Quando a ferramenta de verificação de disponibilidade retornar success=true e suggestedSlots com available=true para o horário desejado, e todos os dados do usuário estiverem preenchidos, chame imediatamente a ferramenta de agendamento.
 </Funções Específicas>
 
 <Estilo e Abordagem>
@@ -99,11 +201,12 @@ Leve em consideração o histórico da conversa do usuário ao seguir o script. 
 Agende uma reunião com pelo menos 1h após a hora atual.
 Em nenhuma hipótese ensine, explique conceitos, ou envie materiais. Seu único objetivo é qualificar e agendar a reunião com o especialista.
 Priorize agendamentos em horários redondos 13h, 12h, 15h. evite horas como 13:30, 14:45.
+Formato esperado da resposta da ferramenta de disponibilidade: { success: true, suggestedSlots: [ { start, end, available } ], message }
 </Outros>
 `;
     return prompt;
   },
-  tools: [googleCalendarTool, whatsappTool],
+  tools: [verificarDisponibilidadeTool, agendarTool, cancelarTool, whatsappTool],
   model: 'gpt-4.1',
 });
 
@@ -151,16 +254,19 @@ export async function processUserMessage(
   message: string,
   messageType: string = 'text'
 ): Promise<SDRResponse> {
+  console.log('[AGENTE] Nova mensagem recebida:', { threadId, userId, message, messageType });
   // 1. Recupera ou cria a sessão
   const session = threadsManager.getOrCreate(threadId, userId);
 
-  // 2. Adiciona mensagem do usuário ao histórico
+  // 2. Adiciona mensagem do usuário ao histórico (MySQL)
+  await addMessageToHistoryMySQL(threadId, userId, 'user', message);
   session.addMessage('user', message);
 
   // 3. Roteamento: decide quem responde
   let response = '';
   if (session.currentAgent === 'humano') {
     response = 'Encaminhado para atendente humano.';
+    console.log('[AGENTE] Handoff para humano acionado.');
   } else {
     // Monta contexto com últimas N mensagens
     const context = session.getLastNMessages(12);
@@ -176,22 +282,35 @@ export async function processUserMessage(
     // Se o agente pedir confirmação, salva no estado
     if (response.toLowerCase().includes('confirmar') || response.toLowerCase().includes('confirmação')) {
       session.state.aguardandoConfirmacao = true;
-      // Aqui você pode extrair e salvar dados do agendamento do prompt/contexto
       session.state.dadosAgendamento = {/* ...extrair dados do prompt... */};
     }
-    // Se usuário confirmou, executa agendamento e limpa estado
+    // Se usuário confirmou, executa agendamento via MCP e limpa estado
     if (session.state.aguardandoConfirmacao && isConfirmation(message)) {
-      // await googleCalendarTool.execute(session.state.dadosAgendamento, ...);
+      const agendamento = await agendarReuniaoMCP({
+        ...session.state.dadosAgendamento,
+        threadId,
+        userId
+      }, threadId, userId);
       session.state.aguardandoConfirmacao = false;
       session.state.dadosAgendamento = null;
-      response = 'Reunião agendada com sucesso!';
+      response = agendamento.success ? 'Reunião agendada com sucesso!' : agendamento.message;
     }
+    // Exemplo de cancelamento (adapte conforme seu fluxo)
+    if (response.toLowerCase().includes('cancelar reunião')) {
+      // Buscar eventId no banco e cancelar via MCP
+      // const eventId = ...
+      // const cancelamento = await cancelarReuniaoMCP(eventId);
+      // response = cancelamento.success ? 'Reunião cancelada com sucesso!' : cancelamento.message;
+    }
+    console.log('[AGENTE] Resposta do agente:', response);
   }
 
-  // 4. Adiciona resposta ao histórico
+  // 4. Adiciona resposta ao histórico (MySQL)
+  await addMessageToHistoryMySQL(threadId, userId, 'assistant', response);
   session.addMessage('assistant', response);
 
   // 5. Retorna resposta
+  console.log('[AGENTE] Resposta final enviada ao usuário:', response);
   return { message: response, type: 'text', metadata: {} };
 }
 
@@ -239,4 +358,37 @@ function extractIntent(message: any) {
     lower.includes('resuma nossa conversa')
   ) return 'history';
   return 'general';
+}
+
+async function agendarReuniaoMCP(params: any, threadId: string, userId: string) {
+  const fullParams = { ...params, threadId, userId };
+  console.log('[AGENTE][agendarReuniaoMCP] Parâmetros enviados para MCP:', fullParams);
+  try {
+    const { data, status } = await axios.post('https://sdr.212industria.com/agenda/agendar', fullParams);
+    console.log('[AGENTE][agendarReuniaoMCP] Status:', status, 'Resposta:', data);
+    if (!data || typeof data !== 'object') {
+      console.error('[AGENTE][agendarReuniaoMCP] Resposta inesperada do MCP:', data);
+      return { success: false, message: 'Erro técnico: resposta inesperada do MCP.' };
+    }
+    if (!data.success) {
+      console.error('[AGENTE][agendarReuniaoMCP] Falha no MCP:', data.message);
+    }
+    return data;
+  } catch (error) {
+    console.error('[AGENTE][agendarReuniaoMCP] Erro ao chamar MCP Server:', error);
+    return { success: false, message: 'Erro técnico ao chamar MCP Server.' };
+  }
+}
+
+async function cancelarReuniaoMCP(eventId: string, threadId: string, userId: string) {
+  const payload = { eventId, threadId, userId };
+  console.log('[AGENTE][cancelarReuniaoMCP] Parâmetros enviados:', payload);
+  try {
+    const { data, status } = await axios.post('https://sdr.212industria.com/agenda/cancelar', payload);
+    console.log('[AGENTE][cancelarReuniaoMCP] Status:', status, 'Resposta:', data);
+    return data;
+  } catch (error) {
+    console.error('[AGENTE][cancelarReuniaoMCP] Erro ao chamar MCP Server:', error);
+    throw error;
+  }
 }

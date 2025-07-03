@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 import { config } from '../utils/config.js';
 import { CalendarEvent, SchedulingResponse, AvailableSlot } from '../types/index.js';
+import { addMeetingToMySQL } from '../utils/meetings.js';
 
 // Configuração do Google Calendar
 const auth = new google.auth.OAuth2(
@@ -91,8 +92,10 @@ async function scheduleMeeting(params: {
   attendees?: string[] | null;
   duration?: number | null;
   timeZone: string | null;
+  threadId?: string;
+  userId?: string;
 }): Promise<SchedulingResponse> {
-  const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone } = params;
+  const { summary, description, startDateTime, endDateTime, attendees, duration, timeZone, threadId, userId } = params;
   
   console.log('[GOOGLE CALENDAR] Iniciando agendamento de reunião...');
   console.log('[GOOGLE CALENDAR] Parâmetros recebidos:', params);
@@ -139,6 +142,18 @@ async function scheduleMeeting(params: {
     });
 
     console.log('[GOOGLE CALENDAR] Evento criado com sucesso:', response.data);
+
+    // Salva no MySQL se threadId e userId estiverem presentes
+    if (threadId && userId) {
+      await addMeetingToMySQL({
+        threadId,
+        userId,
+        eventId: String(response.data.id || ''),
+        summary: summary || '',
+        startTime: start,
+        endTime: end
+      });
+    }
 
     return {
       success: true,
@@ -352,3 +367,5 @@ function formatDateTime(date: Date): string {
     minute: '2-digit'
   });
 }
+
+export { scheduleMeeting, cancelMeeting, listMeetings, checkAvailability };
