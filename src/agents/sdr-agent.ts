@@ -171,6 +171,13 @@ Nunca revela ser uma IA
 Nunca deixe de perguntar o nome no começo
 </Restrição>
 
+<Instruções para Solicitações de Atendimento Humano>
+Se o usuário solicitar falar com humano, atendente, pessoa real, ou qualquer variação similar, responda com:
+"Entendo que você gostaria de falar com alguém do nosso time. Aqui está o contato direto do Willian Celso: https://wa.me/5511973415695?text=ol%C3%A1%2C%20vim%20do%20atendimento%20da%20Lana
+
+Você pode clicar no link acima para iniciar uma conversa direta com ele. Ele e nossa equipe estão sempre disponíveis para ajudar com suas dúvidas sobre posicionamento de marca."
+</Instruções para Solicitações de Atendimento Humano>
+
 <Passos Detalhados>
 0. Abertura
 Pergunta o nome do usuário, se apresenta brevemente como membra do time do Willian Celso e aguarda resposta
@@ -211,33 +218,6 @@ Formato esperado da resposta da ferramenta de disponibilidade: { success: true, 
   model: 'gpt-4.1',
 });
 
-// ---------- TRIGGERS HANDOFF ----------
-
-const handoffTriggers = [
-  {
-    condition: (input: any) =>
-      input.toLowerCase().includes('falar com humano') ||
-      input.toLowerCase().includes('atendente') ||
-      input.toLowerCase().includes('pessoa'),
-    priority: 'high',
-    message: 'Cliente solicitou falar com humano',
-  },
-  {
-    condition: (input: any) =>
-      input.toLowerCase().includes('reclamação') ||
-      input.toLowerCase().includes('problema') ||
-      input.toLowerCase().includes('insatisfeito'),
-    priority: 'medium',
-    message: 'Cliente com reclamação detectada',
-  },
-  {
-    condition: (input: any, context: any) =>
-      context.rescheduleAttempts >= config.maxRescheduleAttempts,
-    priority: 'high',
-    message: 'Máximo de tentativas de remarcação atingido',
-  },
-];
-
 // ---------- CORE DO FLUXO SDR ----------
 
 const threadsManager = new ThreadsManager();
@@ -258,6 +238,15 @@ async function getHistoryByUserIdMySQL(userId: string, limit: number = 2) {
   return rows;
 }
 
+// Função para carregar histórico completo do banco de dados
+async function loadHistoryFromDatabase(threadId: string, userId: string, limit: number = 50) {
+  const [rows] = await pool.query(
+    'SELECT * FROM conversation_history WHERE thread_id = ? OR user_id = ? ORDER BY created_at ASC LIMIT ?',
+    [threadId, userId, limit]
+  );
+  return Array.isArray(rows) ? rows : [];
+}
+
 export async function processUserMessage(
   threadId: string,
   userId: string,
@@ -266,13 +255,12 @@ export async function processUserMessage(
 ): Promise<SDRResponse> {
   console.log('[AGENTE] Nova mensagem recebida:', { threadId, userId, message, messageType });
 
-  // Salva a mensagem do usuário no histórico ANTES de checar se é a primeira
-  await addMessageToHistoryMySQL(threadId, userId, 'user', message);
-
   // 1. Verifica se é a primeira mensagem do usuário (em qualquer thread)
   const userHistoryResult = await getHistoryByUserIdMySQL(userId, 2);
   const userHistory = Array.isArray(userHistoryResult) ? userHistoryResult : [];
-  if (userHistory.length === 1) { // Só envia o Flow se for realmente a primeira mensagem do usuário
+  if (userHistory.length === 0) {
+    // Salva a mensagem do usuário no histórico
+    await addMessageToHistoryMySQL(threadId, userId, 'user', message);
     // Envia template WhatsApp com Flow (flow_v3)
     try {
       await axios.post(
@@ -317,61 +305,34 @@ export async function processUserMessage(
     return { message: '', type: 'text', metadata: {} };
   }
 
-  // 1. Recupera ou cria a sessão
-  const session = threadsManager.getOrCreate(threadId, userId);
-
-  // 2. Adiciona mensagem do usuário ao histórico (MySQL)
+  // Salva a mensagem do usuário no histórico (apenas se não for a primeira)
   await addMessageToHistoryMySQL(threadId, userId, 'user', message);
-  session.addMessage('user', message);
 
-  // 3. Roteamento: decide quem responde
-  let response = '';
-  if (session.currentAgent === 'humano') {
-    response = 'Encaminhado para atendente humano.';
-    console.log('[AGENTE] Handoff para humano acionado.');
-  } else {
-    // Monta contexto com últimas N mensagens
-    const context = session.getLastNMessages(12);
-    // Chama o agente SDR passando o contexto
-    const agentContext = {
-      userId,
-      messageType,
-      threadId,
-      history: context.map((h) => ({ role: h.role, message: h.content })),
-    };
-    const result = await run(sdrAgent, message, { context: agentContext });
-    response = result.finalOutput || '';
-    // Se o agente pedir confirmação, salva no estado
-    if (response.toLowerCase().includes('confirmar') || response.toLowerCase().includes('confirmação')) {
-      session.state.aguardandoConfirmacao = true;
-      session.state.dadosAgendamento = {/* ...extrair dados do prompt... */};
-    }
-    // Se usuário confirmou, executa agendamento via MCP e limpa estado
-    if (session.state.aguardandoConfirmacao && isConfirmation(message)) {
-      const agendamento = await agendarReuniaoMCP({
-        ...session.state.dadosAgendamento,
-        threadId,
-        userId
-      }, threadId, userId);
-      session.state.aguardandoConfirmacao = false;
-      session.state.dadosAgendamento = null;
-      response = agendamento.success ? 'Reunião agendada com sucesso!' : agendamento.message;
-    }
-    // Exemplo de cancelamento (adapte conforme seu fluxo)
-    if (response.toLowerCase().includes('cancelar reunião')) {
-      // Buscar eventId no banco e cancelar via MCP
-      // const eventId = ...
-      // const cancelamento = await cancelarReuniaoMCP(eventId);
-      // response = cancelamento.success ? 'Reunião cancelada com sucesso!' : cancelamento.message;
-    }
-    console.log('[AGENTE] Resposta do agente:', response);
-  }
+  // 2. Carrega histórico completo do banco de dados
+  const dbHistory = await loadHistoryFromDatabase(threadId, userId, 50);
+  
+  // 3. Monta contexto com histórico do banco de dados
+  const context = dbHistory.map((h: any) => ({ 
+    role: h.role, 
+    message: h.message,
+    content: h.message // Para compatibilidade com o formato esperado
+  }));
 
-  // 4. Adiciona resposta ao histórico (MySQL)
+  // 4. Chama o agente SDR passando o contexto do banco
+  const agentContext = {
+    userId,
+    messageType,
+    threadId,
+    history: context.slice(-12), // Últimas 12 mensagens para o contexto
+  };
+  
+  const result = await run(sdrAgent, message, { context: agentContext });
+  const response = result.finalOutput || '';
+  
+  // 5. Adiciona resposta ao histórico (MySQL)
   await addMessageToHistoryMySQL(threadId, userId, 'assistant', response);
-  session.addMessage('assistant', response);
 
-  // 5. Retorna resposta
+  // 6. Retorna resposta
   console.log('[AGENTE] Resposta final enviada ao usuário:', response);
   return { message: response, type: 'text', metadata: {} };
 }
@@ -391,13 +352,6 @@ function createUserContext(userId: any) {
       notes: '',
     },
   };
-}
-
-function checkHandoffTriggers(message: any, context: any) {
-  for (const trigger of handoffTriggers) {
-    if (trigger.condition(message, context)) return trigger;
-  }
-  return null;
 }
 
 function isUrgentRequest(message: any) {

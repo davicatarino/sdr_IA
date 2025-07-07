@@ -20,7 +20,7 @@ export const agendarTool = tool({
     }),
     async execute(args) {
         const summary = 'Análise de Posicionamento';
-        const description = 'Reunião para análise dos ruídos de posicionamento percebidos após consumo de conteúdo do Willian Celso. Método MPM.';
+        const description = 'Reunião para análise dos ruídos de posicionamento percebidos após consumo de conteúdo do Willian Celso.';
         const timeZone = 'America/Sao_Paulo';
         const payload = {
             summary,
@@ -159,6 +159,13 @@ Nunca revela ser uma IA
 Nunca deixe de perguntar o nome no começo
 </Restrição>
 
+<Instruções para Solicitações de Atendimento Humano>
+Se o usuário solicitar falar com humano, atendente, pessoa real, ou qualquer variação similar, responda com:
+"Entendo que você gostaria de falar com alguém do nosso time. Aqui está o contato direto do Willian Celso: https://wa.me/5511973415695?text=ol%C3%A1%2C%20vim%20do%20atendimento%20da%20Lana
+
+Você pode clicar no link acima para iniciar uma conversa direta com ele. Ele e nossa equipe estão sempre disponíveis para ajudar com suas dúvidas sobre posicionamento de marca."
+</Instruções para Solicitações de Atendimento Humano>
+
 <Passos Detalhados>
 0. Abertura
 Pergunta o nome do usuário, se apresenta brevemente como membra do time do Willian Celso e aguarda resposta
@@ -198,27 +205,6 @@ Formato esperado da resposta da ferramenta de disponibilidade: { success: true, 
     tools: [verificarDisponibilidadeTool, agendarTool, cancelarTool, whatsappTool],
     model: 'gpt-4.1',
 });
-const handoffTriggers = [
-    {
-        condition: (input) => input.toLowerCase().includes('falar com humano') ||
-            input.toLowerCase().includes('atendente') ||
-            input.toLowerCase().includes('pessoa'),
-        priority: 'high',
-        message: 'Cliente solicitou falar com humano',
-    },
-    {
-        condition: (input) => input.toLowerCase().includes('reclamação') ||
-            input.toLowerCase().includes('problema') ||
-            input.toLowerCase().includes('insatisfeito'),
-        priority: 'medium',
-        message: 'Cliente com reclamação detectada',
-    },
-    {
-        condition: (input, context) => context.rescheduleAttempts >= config.maxRescheduleAttempts,
-        priority: 'high',
-        message: 'Máximo de tentativas de remarcação atingido',
-    },
-];
 const threadsManager = new ThreadsManager();
 function isConfirmation(msg) {
     const confirma = [
@@ -230,12 +216,16 @@ async function getHistoryByUserIdMySQL(userId, limit = 2) {
     const [rows] = await pool.query('SELECT * FROM conversation_history WHERE user_id = ? ORDER BY created_at ASC LIMIT ?', [userId, limit]);
     return rows;
 }
+async function loadHistoryFromDatabase(threadId, userId, limit = 50) {
+    const [rows] = await pool.query('SELECT * FROM conversation_history WHERE thread_id = ? OR user_id = ? ORDER BY created_at ASC LIMIT ?', [threadId, userId, limit]);
+    return Array.isArray(rows) ? rows : [];
+}
 export async function processUserMessage(threadId, userId, message, messageType = 'text') {
     console.log('[AGENTE] Nova mensagem recebida:', { threadId, userId, message, messageType });
-    await addMessageToHistoryMySQL(threadId, userId, 'user', message);
     const userHistoryResult = await getHistoryByUserIdMySQL(userId, 2);
     const userHistory = Array.isArray(userHistoryResult) ? userHistoryResult : [];
-    if (userHistory.length === 1) {
+    if (userHistory.length === 0) {
+        await addMessageToHistoryMySQL(threadId, userId, 'user', message);
         try {
             await axios.post(`https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`, {
                 messaging_product: 'whatsapp',
@@ -274,44 +264,22 @@ export async function processUserMessage(threadId, userId, message, messageType 
         }
         return { message: '', type: 'text', metadata: {} };
     }
-    const session = threadsManager.getOrCreate(threadId, userId);
     await addMessageToHistoryMySQL(threadId, userId, 'user', message);
-    session.addMessage('user', message);
-    let response = '';
-    if (session.currentAgent === 'humano') {
-        response = 'Encaminhado para atendente humano.';
-        console.log('[AGENTE] Handoff para humano acionado.');
-    }
-    else {
-        const context = session.getLastNMessages(12);
-        const agentContext = {
-            userId,
-            messageType,
-            threadId,
-            history: context.map((h) => ({ role: h.role, message: h.content })),
-        };
-        const result = await run(sdrAgent, message, { context: agentContext });
-        response = result.finalOutput || '';
-        if (response.toLowerCase().includes('confirmar') || response.toLowerCase().includes('confirmação')) {
-            session.state.aguardandoConfirmacao = true;
-            session.state.dadosAgendamento = {};
-        }
-        if (session.state.aguardandoConfirmacao && isConfirmation(message)) {
-            const agendamento = await agendarReuniaoMCP({
-                ...session.state.dadosAgendamento,
-                threadId,
-                userId
-            }, threadId, userId);
-            session.state.aguardandoConfirmacao = false;
-            session.state.dadosAgendamento = null;
-            response = agendamento.success ? 'Reunião agendada com sucesso!' : agendamento.message;
-        }
-        if (response.toLowerCase().includes('cancelar reunião')) {
-        }
-        console.log('[AGENTE] Resposta do agente:', response);
-    }
+    const dbHistory = await loadHistoryFromDatabase(threadId, userId, 50);
+    const context = dbHistory.map((h) => ({
+        role: h.role,
+        message: h.message,
+        content: h.message
+    }));
+    const agentContext = {
+        userId,
+        messageType,
+        threadId,
+        history: context.slice(-12),
+    };
+    const result = await run(sdrAgent, message, { context: agentContext });
+    const response = result.finalOutput || '';
     await addMessageToHistoryMySQL(threadId, userId, 'assistant', response);
-    session.addMessage('assistant', response);
     console.log('[AGENTE] Resposta final enviada ao usuário:', response);
     return { message: response, type: 'text', metadata: {} };
 }
@@ -328,13 +296,6 @@ function createUserContext(userId) {
             notes: '',
         },
     };
-}
-function checkHandoffTriggers(message, context) {
-    for (const trigger of handoffTriggers) {
-        if (trigger.condition(message, context))
-            return trigger;
-    }
-    return null;
 }
 function isUrgentRequest(message) {
     const urgentKeywords = ['urgente', 'emergência', 'importante', 'crítico'];
