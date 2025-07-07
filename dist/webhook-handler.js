@@ -5,9 +5,19 @@ import { processUserMessage } from './agents/sdr-agent.js';
 import { downloadWhatsAppMedia } from './tools/whatsapp-tool.js';
 import FormData from 'form-data';
 import { google } from 'googleapis';
+import mysql from 'mysql2/promise';
 const app = express();
 app.use(express.json());
 setupOpenAI();
+const chatbotDb = mysql.createPool({
+    host: 'localhost',
+    user: 'root',
+    password: 'catarino',
+    database: 'chattingbot',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+});
 app.get('/webhook', (req, res) => {
     const mode = req.query['hub.mode'];
     const token = req.query['hub.verify_token'];
@@ -63,6 +73,32 @@ async function processWhatsAppMessage(message, contact) {
         let userInput = '';
         let messageType = 'text';
         console.log(`📱 Mensagem recebida de ${userId}:`, message.type);
+        if (message.type === 'interactive') {
+            console.log('🔎 Objeto INTERACTIVE recebido:', JSON.stringify(message, null, 2));
+            try {
+                const nfm = message.interactive?.nfm_reply;
+                if (nfm && nfm.response_json) {
+                    const data = JSON.parse(nfm.response_json);
+                    const nome = data.nome_completo || '';
+                    const email = data.email || '';
+                    const funcao = data.funcao || '';
+                    const faturamento = data.faturamento || '';
+                    const instagram = data.instagram || '';
+                    const negocio = data.tipo_negocio || '';
+                    const dificuldades = data.dificuldade || '';
+                    const telefone = data.telefone || userId;
+                    console.log('[DB] Dados extraídos para inserção:', { nome, email, funcao, faturamento, instagram, negocio, dificuldades, telefone });
+                    const [result] = await chatbotDb.query('INSERT INTO forms (name, email, função, faturamento, instagram, negócio, dificuldades, telefone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [nome, email, funcao, faturamento, instagram, negocio, dificuldades, telefone]);
+                    console.log('[DB] Resultado da inserção:', result);
+                }
+                else {
+                    console.log('[DB] nfm_reply ou response_json ausente no objeto interactive.');
+                }
+            }
+            catch (err) {
+                console.error('[DB] Erro ao processar/inserir dados do interactive:', err);
+            }
+        }
         switch (message.type) {
             case 'text':
                 userInput = message.text?.body || '';
@@ -73,6 +109,9 @@ async function processWhatsAppMessage(message, contact) {
                 break;
             case 'document':
                 userInput = `Documento recebido: ${message.document?.filename}`;
+                break;
+            case 'interactive':
+                userInput = 'Mensagem de tipo interactive recebida';
                 break;
             default:
                 userInput = `Mensagem de tipo ${message.type} recebida`;

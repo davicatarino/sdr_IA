@@ -9,7 +9,7 @@ export interface WhatsAppMessage {
     id: string;
     from: string;
     timestamp: string;
-    type: 'text' | 'audio' | 'document' | 'image';
+    type: 'text' | 'audio' | 'document' | 'image' | 'interactive';
     text?: {
         body: string;
     };
@@ -22,6 +22,7 @@ export interface WhatsAppMessage {
         filename: string;
         mime_type: string;
     };
+    interactive?: any;
 }
 export interface WhatsAppWebhookPayload {
     object: string;
