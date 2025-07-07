@@ -6,6 +6,7 @@ import { ThreadsManager } from '../threads/ThreadsManager.js';
 import axios from 'axios';
 import { z } from 'zod';
 import { getMeetingEventIdByThread } from '../utils/meetings.js';
+import { pool } from '../utils/mysql.js';
 export const agendarTool = tool({
     name: 'agendar_reuniao',
     description: 'Agenda uma nova reunião no Google Calendar',
@@ -225,8 +226,54 @@ function isConfirmation(msg) {
     ];
     return confirma.some((c) => msg.toLowerCase().includes(c));
 }
+async function getHistoryByUserIdMySQL(userId, limit = 2) {
+    const [rows] = await pool.query('SELECT * FROM conversation_history WHERE user_id = ? ORDER BY created_at ASC LIMIT ?', [userId, limit]);
+    return rows;
+}
 export async function processUserMessage(threadId, userId, message, messageType = 'text') {
     console.log('[AGENTE] Nova mensagem recebida:', { threadId, userId, message, messageType });
+    await addMessageToHistoryMySQL(threadId, userId, 'user', message);
+    const userHistoryResult = await getHistoryByUserIdMySQL(userId, 2);
+    const userHistory = Array.isArray(userHistoryResult) ? userHistoryResult : [];
+    if (userHistory.length === 1) {
+        try {
+            await axios.post(`https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`, {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: userId,
+                type: 'template',
+                template: {
+                    name: 'flow_v3',
+                    language: { code: 'pt_BR' },
+                    components: [
+                        {
+                            type: 'button',
+                            sub_type: 'flow',
+                            index: '0',
+                            parameters: [
+                                {
+                                    type: 'action',
+                                    action: {
+                                        flow_token: 'unused'
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            }, {
+                headers: {
+                    Authorization: `Bearer ${config.whatsappAccessToken}`,
+                    'Content-Type': 'application/json'
+                }
+            });
+            console.log('[AGENTE] Template WhatsApp flow_v3 enviado para primeira mensagem do usuário.');
+        }
+        catch (err) {
+            console.error('[AGENTE] Erro ao enviar template WhatsApp flow_v3:', err);
+        }
+        return { message: '', type: 'text', metadata: {} };
+    }
     const session = threadsManager.getOrCreate(threadId, userId);
     await addMessageToHistoryMySQL(threadId, userId, 'user', message);
     session.addMessage('user', message);

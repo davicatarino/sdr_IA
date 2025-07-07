@@ -179,9 +179,12 @@ async function transcribeAudio(mediaId: string): Promise<string> {
  * Envia resposta para o WhatsApp
  */
 async function sendWhatsAppResponse(phoneNumber: string, response: any) {
+  if (!response.message || response.message.trim() === '') {
+    // Não envie nada se a mensagem for vazia
+    return;
+  }
   try {
-    const url = `https://graph.facebook.com/v17.0/${config.whatsappPhoneNumberId}/messages`;
-    
+    const url = `https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`;
     const requestBody = {
       messaging_product: 'whatsapp',
       to: phoneNumber,
@@ -190,14 +193,12 @@ async function sendWhatsAppResponse(phoneNumber: string, response: any) {
         body: response.message
       }
     };
-
     const apiResponse = await axios.post(url, requestBody, {
       headers: {
         'Authorization': `Bearer ${config.whatsappAccessToken}`,
         'Content-Type': 'application/json'
       }
     });
-
     console.log('✅ Resposta enviada:', response.message.substring(0, 50) + '...');
     return apiResponse.data;
   } catch (error) {

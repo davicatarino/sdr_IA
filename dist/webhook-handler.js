@@ -125,8 +125,11 @@ async function transcribeAudio(mediaId) {
     }
 }
 async function sendWhatsAppResponse(phoneNumber, response) {
+    if (!response.message || response.message.trim() === '') {
+        return;
+    }
     try {
-        const url = `https://graph.facebook.com/v17.0/${config.whatsappPhoneNumberId}/messages`;
+        const url = `https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`;
         const requestBody = {
             messaging_product: 'whatsapp',
             to: phoneNumber,

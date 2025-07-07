@@ -11,6 +11,7 @@ import { ThreadsManager } from '../threads/ThreadsManager.js';
 import axios from 'axios';
 import { z } from 'zod';
 import { getMeetingEventIdByThread } from '../utils/meetings.js';
+import { pool } from '../utils/mysql.js';
 
 // ---------- AGENTE SDR ----------
 
@@ -28,7 +29,7 @@ export const agendarTool = tool({
   async execute(args) {
     // Força campos fixos
     const summary = 'Análise de Posicionamento';
-    const description = 'Reunião para análise dos ruídos de posicionamento percebidos após consumo de conteúdo do Willian Celso. Método MPM.';
+    const description = 'Reunião para análise dos ruídos de posicionamento percebidos após consumo de conteúdo do Willian Celso.';
     const timeZone = 'America/Sao_Paulo';
     const payload = {
       summary,
@@ -248,6 +249,15 @@ function isConfirmation(msg: string): boolean {
   return confirma.some((c) => msg.toLowerCase().includes(c));
 }
 
+// Função utilitária para buscar histórico por userId
+async function getHistoryByUserIdMySQL(userId: string, limit: number = 2) {
+  const [rows] = await pool.query(
+    'SELECT * FROM conversation_history WHERE user_id = ? ORDER BY created_at ASC LIMIT ?',
+    [userId, limit]
+  );
+  return rows;
+}
+
 export async function processUserMessage(
   threadId: string,
   userId: string,
@@ -255,6 +265,58 @@ export async function processUserMessage(
   messageType: string = 'text'
 ): Promise<SDRResponse> {
   console.log('[AGENTE] Nova mensagem recebida:', { threadId, userId, message, messageType });
+
+  // Salva a mensagem do usuário no histórico ANTES de checar se é a primeira
+  await addMessageToHistoryMySQL(threadId, userId, 'user', message);
+
+  // 1. Verifica se é a primeira mensagem do usuário (em qualquer thread)
+  const userHistoryResult = await getHistoryByUserIdMySQL(userId, 2);
+  const userHistory = Array.isArray(userHistoryResult) ? userHistoryResult : [];
+  if (userHistory.length === 1) { // Só envia o Flow se for realmente a primeira mensagem do usuário
+    // Envia template WhatsApp com Flow (flow_v3)
+    try {
+      await axios.post(
+        `https://graph.facebook.com/v22.0/${config.whatsappPhoneNumberId}/messages`,
+        {
+          messaging_product: 'whatsapp',
+          recipient_type: 'individual',
+          to: userId,
+          type: 'template',
+          template: {
+            name: 'flow_v3',
+            language: { code: 'pt_BR' },
+            components: [
+              {
+                type: 'button',
+                sub_type: 'flow',
+                index: '0',
+                parameters: [
+                  {
+                    type: 'action',
+                    action: {
+                      flow_token: 'unused'
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${config.whatsappAccessToken}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+      console.log('[AGENTE] Template WhatsApp flow_v3 enviado para primeira mensagem do usuário.');
+    } catch (err) {
+      console.error('[AGENTE] Erro ao enviar template WhatsApp flow_v3:', err);
+    }
+    // Retorna sem processar o restante do fluxo
+    return { message: '', type: 'text', metadata: {} };
+  }
+
   // 1. Recupera ou cria a sessão
   const session = threadsManager.getOrCreate(threadId, userId);
 
