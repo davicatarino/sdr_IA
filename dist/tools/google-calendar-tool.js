@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { google } from 'googleapis';
 import { config } from '../utils/config.js';
 import { addMeetingToMySQL } from '../utils/meetings.js';
+import { getResponsavelAtual, avancarIndice } from '../utils/agendaRotacao';
 const auth = new google.auth.OAuth2(config.googleClientId, config.googleClientSecret);
 auth.setCredentials({
     refresh_token: config.googleRefreshToken
@@ -74,6 +75,8 @@ async function scheduleMeeting(params) {
             message: 'Título, data/hora de início e fuso horário são obrigatórios'
         };
     }
+    const responsavel = await getResponsavelAtual();
+    const allAttendees = attendees ? [responsavel, ...attendees.filter(e => e !== responsavel)] : [responsavel];
     const start = new Date(startDateTime);
     const end = endDateTime ? new Date(endDateTime) : new Date(start.getTime() + (duration || 60) * 60000);
     const event = {
@@ -87,7 +90,7 @@ async function scheduleMeeting(params) {
             dateTime: end.toISOString(),
             timeZone
         },
-        attendees: attendees?.map(email => ({ email })) || undefined,
+        attendees: allAttendees.map(email => ({ email })),
         reminders: {
             useDefault: false,
             overrides: [
@@ -114,6 +117,7 @@ async function scheduleMeeting(params) {
                 endTime: end
             });
         }
+        await avancarIndice();
         return {
             success: true,
             eventId: response.data.id || undefined,

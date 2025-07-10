@@ -4,6 +4,7 @@ import { google } from 'googleapis';
 import { config } from '../utils/config.js';
 import { CalendarEvent, SchedulingResponse, AvailableSlot } from '../types/index.js';
 import { addMeetingToMySQL } from '../utils/meetings.js';
+import { getResponsavelAtual, avancarIndice } from '../utils/agendaRotacao';
 
 // Configuração do Google Calendar
 const auth = new google.auth.OAuth2(
@@ -108,6 +109,10 @@ async function scheduleMeeting(params: {
     };
   }
 
+  // INTEGRAÇÃO DO RODÍZIO DE AGENDAS
+  const responsavel = await getResponsavelAtual();
+  const allAttendees = attendees ? [responsavel, ...attendees.filter(e => e !== responsavel)] : [responsavel];
+
   const start = new Date(startDateTime);
   const end = endDateTime ? new Date(endDateTime) : new Date(start.getTime() + (duration || 60) * 60000);
 
@@ -122,7 +127,7 @@ async function scheduleMeeting(params: {
       dateTime: end.toISOString(),
       timeZone
     },
-    attendees: attendees?.map(email => ({ email })) || undefined,
+    attendees: allAttendees.map(email => ({ email })),
     reminders: {
       useDefault: false,
       overrides: [
@@ -154,6 +159,9 @@ async function scheduleMeeting(params: {
         endTime: end
       });
     }
+
+    // AVANÇA O ÍNDICE DO RODÍZIO APÓS AGENDAR
+    await avancarIndice();
 
     return {
       success: true,
